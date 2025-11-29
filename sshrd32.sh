@@ -362,6 +362,9 @@ device_info() {
             done
         fi
     fi
+    if [ ! -d "$saved/$device_type" ]; then
+        mkdir $saved/$device_type
+    fi
     case $device_type in
         "iPhone1,1") device_name="iPhone 2G";;
         "iPhone1,2") device_name="iPhone 3G";;
@@ -520,6 +523,32 @@ ramdisk() {
         iPod5,1 ) device_target_build="13A452";;
         * ) device_target_build="10B329";;
     esac
+    if [[ -n $device_rd_build_custom ]]; then
+        if [[ $ship_build_check != 1 ]]; then
+            log get version info
+            if [[ "$device_rd_build_custom" =~ ^[0-9]+[A-Za-z][0-9]+[a-z]?$ ]]; then
+                get_firmware_info build $device_rd_build_custom
+                if [ -z "$url" ]; then
+                    error Unable get url of this version
+                    exit 1
+                fi
+                device_rd_build=$device_rd_build_custom
+            else
+                log get version info
+                get_firmware_info ver $device_rd_build_custom
+                if [ -z "$url" ]; then
+                    error Unable get url of this version
+                    pause
+                    exit 1
+                fi
+                device_rd_build=$buildid
+            fi
+        else
+            device_rd_build=$device_rd_build_custom
+        fi
+        tip "use custom version:$device_rd_build"
+    fi
+    pause
     if [[ -n $device_rd_build ]]; then
         device_target_build=$device_rd_build
         device_rd_build=
@@ -683,14 +712,7 @@ ramdisk() {
         return
     fi
 
-    if [[ $1 == "jailbreak" || $1 == "justboot" ]]; then
-        device_enter_mode pwnDFU
-    elif [[ $device_proc == 1 ]]; then
-        device_enter_mode DFU
-    else
-        #device_buttons
-        :
-    fi
+    device_pwn
 
     if [[ $device_type == "iPad1,1" && $build_id != "9"* ]]; then
         patch_ibss
@@ -704,13 +726,13 @@ ramdisk() {
         $irecovery -f $ramdisk_path/iBSS
     fi
     sleep 2
-    if [[ $build_id != "7"* && $build_id != "8"* ]]; then
+    #if [[ $build_id != "7"* && $build_id != "8"* ]]; then
         log "Sending iBEC..."
         $irecovery -f $ramdisk_path/iBEC
         if [[ $device_pwnrec == 1 ]]; then
             $irecovery -c "go"
         fi
-    fi
+    #fi
     sleep 3
     checkmode rec
     if [[ $1 != "justboot" ]]; then
@@ -758,24 +780,21 @@ ramdisk() {
     if [[ $no_menu != "1" ]]; then
         ssh_menu
     fi
+    if [[ $just_jailbreak == 1 ]]; then
+        jailbreak_sshrd
+    elif [[ $just_get_ios_ver == 1 ]]; then
+        check_iosvers
+    fi
+
 }
 
 
 main() {
-    if [[ "$script_help" != "1" ]] || [[ "$start_menu_only" != "1" ]]; then
+    debug_func
+    if [[ "$just_make" != "1" ]] && [[ -z "$device_type" ]]; then
         checkmode DFU
-    else
-        if [[ "$script_help" == "1" ]]; then
-            display_help
-        elif [[ "$start_menu_only" != "1" ]]; then
-            ssh_menu
-        fi
-    fi
-    if [ ! -d "$saved/$device_type" ]; then
-        mkdir $saved/$device_type
     fi
     device_info
-    device_pwn
     ramdisk
 }
 
@@ -1026,6 +1045,117 @@ jailbreak_sshrd() {
 
 
 ###tools###
+
+cut_os_vers() {
+    if [[ $1 != device ]]; then
+        device_det=$(echo "$1" | cut -c 1)
+        device_det2=$(echo "$1" | cut -c -2)
+        device_det3=$(echo "$1" | cut -c 3)
+        device_det4=$(echo "$1" | cut -c 4)
+        device_det5=$(echo "$1" | cut -c 4-5)
+        device_det6=$(echo "$1" | cut -c 5-6)
+    else
+        device_det=$(echo "$2" | cut -c 1)
+        device_det2=$(echo "$2" | cut -c -2)
+        device_det3=$(echo "$2" | cut -c 3)
+        device_det4=$(echo "$2" | cut -c 4)
+        device_det5=$(echo "$2" | cut -c 4-5)
+        device_det6=$(echo "$2" | cut -c 5-6)
+    fi
+    if [[ $1 != device ]]; then
+        if [[ $device_det == 1 ]]; then
+            major_ver=$device_det2
+            minor_ver=$device_det4
+            nano_ver=$device_det6
+            nano_ver_wtd=$(echo "$nano_ver" | cut -c 2)
+        else
+            major_ver=$device_det
+            minor_ver=$device_det3
+            nano_ver=$device_det5
+            nano_ver_wtd=$(echo "$nano_ver" | cut -c 2)
+        fi
+    else
+        if [[ $device_det == 1 ]]; then
+            device_major_ver=$device_det2
+            device_minor_ver=$device_det4
+            device_nano_ver=$device_det6
+            device_nano_ver_wtd=$(echo "$device_nano_ver" | cut -c 2)
+        else
+            device_major_ver=$device_det
+            device_minor_ver=$device_det3
+            device_nano_ver=$device_det5
+            device_nano_ver_wtd=$(echo "$device_nano_ver" | cut -c 2)
+        fi
+    fi
+}
+
+get_firmware_info() {
+    local version=
+    local build=
+    buildid=
+    filesize=
+    sha1=
+    sha256=
+    md5=
+    signed=
+    releasedate=
+    uploaddate=
+    curl -s -L "https://api.ipsw.me/v4/device/$device_type?type=ipsw" -o tmp.json
+    JSON_FILE=tmp.json
+    if [[ ! -f "tmp.json" ]]; then
+        error 获取固件信息失败
+        yesno 是否继续？
+        if [[ $? == 1 ]]; then
+            filecheck=1
+        else
+            go_to_menu
+        fi
+    fi
+    if [[ $1 == "ver" ]]; then
+        version=$2
+        if [[ "$device_type" == "iPod4,1" && "$version" == "4.1" ]]; then
+            log Select version
+            options=("8B117" "8B118")
+            select_option "${options[@]}"
+            selected_index=$?
+            selected="${options[$selected_index]}"
+            
+            case $selected in
+                "8B117" ) 
+                    get_firmware_info build 8B117
+                    return $?
+                    ;;
+                "8B118" ) 
+                    get_firmware_info build 8B118
+                    return $?
+                    ;;
+            esac
+        fi
+    elif [[ $1 == "build" ]]; then
+        build=$2
+    fi
+    if [[ $1 == "ver" ]]; then
+        buildid=$($jq -r ".firmwares[] | select(.version == \"$version\") | .buildid" "$JSON_FILE")
+        filesize=$($jq -r ".firmwares[] | select(.version == \"$version\") | .filesize" "$JSON_FILE")
+        url=$($jq -r ".firmwares[] | select(.version == \"$version\") | .url" "$JSON_FILE")
+        sha1=$($jq -r ".firmwares[] | select(.version == \"$version\") | .sha1sum" "$JSON_FILE")
+        sha256=$($jq -r ".firmwares[] | select(.version == \"$version\") | .sha256sum" "$JSON_FILE")
+        md5=$($jq -r ".firmwares[] | select(.version == \"$version\") | .md5sum" "$JSON_FILE")
+        signed=$($jq -r ".firmwares[] | select(.version == \"$version\") | .signed" "$JSON_FILE")
+        releasedate=$($jq -r ".firmwares[] | select(.version == \"$version\") | .releasedate" "$JSON_FILE")
+        uploaddate=$($jq -r ".firmwares[] | select(.version == \"$version\") | .uploaddate" "$JSON_FILE")
+    elif [[ $1 == "build" ]]; then
+        buildid="$build"
+        filesize=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .filesize" "$JSON_FILE")
+        url=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .url" "$JSON_FILE")
+        sha1=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .sha1sum" "$JSON_FILE")
+        sha256=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .sha256sum" "$JSON_FILE")
+        md5=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .md5sum" "$JSON_FILE")
+        signed=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .signed" "$JSON_FILE")
+        releasedate=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .releasedate" "$JSON_FILE")
+        uploaddate=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .uploaddate" "$JSON_FILE")
+    fi
+}
 
 device_send_rdtar() {
     local target="/mnt1"
@@ -1307,8 +1437,8 @@ function yesno() {
 
 
 debug_func() {
-    log $ssh
-    log $dir/irecovery
+    log $device_type
+    log $just_make
     pause
 }
 
@@ -1324,10 +1454,19 @@ set_path
 for i in "$@"; do
     case "$i" in
         --version=* )
-            device_rd_build="${i#--version=}"
+            device_rd_build_custom="${i#--version=}"
             ;;
         --ship-ssh-check )
             ship_ssh_check=1
+            ;;
+        --ship-build-check )
+            warning Without check the build process may cause errors.
+            yesno Do you want to continue?
+            if [[ $? == 1 ]]; then
+                exit 1
+            else
+                ship_build_check=1
+            fi
             ;;
         --menu )
             without_boot=1
@@ -1338,13 +1477,14 @@ for i in "$@"; do
             debug=1
             ;;
         --make )
+            just_make=1
             device_argmode=none
             ;;
         --device=* )
-           device_type="${i#device=}"
+           device_type="${i#--device=}"
             ;;
         --jailbreak | --jb )
-            start_menu=0
+            no_menu=0
             just_jailbreak=1
             ;;
         --help | --h )
