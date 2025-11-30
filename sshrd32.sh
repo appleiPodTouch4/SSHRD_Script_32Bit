@@ -5,7 +5,12 @@ saved="../saved"
 ssh_port=2222
 isoscheck=1
 jelbrek=../resources/Jailbreak
+script_path=$(dirname "$0")/$(basename "$0")
 
+if [[ "$debug" == "1" ]]; then
+    menu_old=1
+    set -x
+fi
 
 log() {
     GREEN='\033[32m'
@@ -525,8 +530,8 @@ ramdisk() {
     esac
     if [[ -n $device_rd_build_custom ]]; then
         if [[ $ship_build_check != 1 ]]; then
-            log get version info
             if [[ "$device_rd_build_custom" =~ ^[0-9]+[A-Za-z][0-9]+[a-z]?$ ]]; then
+                log Get version info
                 get_firmware_info build $device_rd_build_custom
                 if [ -z "$url" ]; then
                     error Unable get url of this version
@@ -534,7 +539,7 @@ ramdisk() {
                 fi
                 device_rd_build=$device_rd_build_custom
             else
-                log get version info
+                log Get version info
                 get_firmware_info ver $device_rd_build_custom
                 if [ -z "$url" ]; then
                     error Unable get url of this version
@@ -548,7 +553,6 @@ ramdisk() {
         fi
         tip "use custom version:$device_rd_build"
     fi
-    pause
     if [[ -n $device_rd_build ]]; then
         device_target_build=$device_rd_build
         device_rd_build=
@@ -709,90 +713,105 @@ ramdisk() {
 
     if [[ $device_argmode == "none" ]]; then
         log "Done creating SSH ramdisk files: saved/$device_type/ramdisk_$build_id"
+            if [[ $arg_l == 1 ]]; then
+                log "Use ./sshrd32 boot to boot device"
+            fi
         return
     fi
-
-    device_pwn
-
-    if [[ $device_type == "iPad1,1" && $build_id != "9"* ]]; then
-        patch_ibss
-        log "Sending iBSS..."
-        $irecovery -f pwnediBSS.dfu
-        sleep 2
-        log "Sending iBEC..."
-        $irecovery -f $ramdisk_path/iBEC
-    elif (( device_proc < 5 )) && [[ $device_pwnrec != 1 ]]; then
-        log "Sending iBSS..."
-        $irecovery -f $ramdisk_path/iBSS
-    fi
-    sleep 2
-    #if [[ $build_id != "7"* && $build_id != "8"* ]]; then
-        log "Sending iBEC..."
-        $irecovery -f $ramdisk_path/iBEC
-        if [[ $device_pwnrec == 1 ]]; then
-            $irecovery -c "go"
+    if [[ $ship_boot != 1 ]]; then
+        device_pwn
+        if [[ $device_type == "iPad1,1" && $build_id != "9"* ]]; then
+            patch_ibss
+            log "Sending iBSS..."
+            $irecovery -f pwnediBSS.dfu
+            sleep 2
+            log "Sending iBEC..."
+            $irecovery -f $ramdisk_path/iBEC
+        elif (( device_proc < 5 )) && [[ $device_pwnrec != 1 ]]; then
+            log "Sending iBSS..."
+            $irecovery -f $ramdisk_path/iBSS
         fi
-    #fi
-    sleep 3
-    checkmode rec
-    if [[ $1 != "justboot" ]]; then
-        log "Sending ramdisk..."
-        $irecovery -f $ramdisk_path/Ramdisk.dmg
-        log "Running ramdisk"
-        $irecovery -c "getenv ramdisk-delay"
-        $irecovery -c ramdisk
         sleep 2
-    fi
-    log "Sending DeviceTree..."
-    $irecovery -f $ramdisk_path/DeviceTree.dec
-    log "Running devicetree"
-    $irecovery -c devicetree
-    log "Sending KernelCache..."
-    $irecovery -f $ramdisk_path/Kernelcache.dec
-    $irecovery -c bootx
+        #if [[ $build_id != "7"* && $build_id != "8"* ]]; then
+            log "Sending iBEC..."
+            $irecovery -f $ramdisk_path/iBEC
+            if [[ $device_pwnrec == 1 ]]; then
+                $irecovery -c "go"
+            fi
+        #fi
+        sleep 3
+        checkmode rec
+        if [[ $1 != "justboot" ]]; then
+            log "Sending ramdisk..."
+            $irecovery -f $ramdisk_path/Ramdisk.dmg
+            log "Running ramdisk"
+            $irecovery -c "getenv ramdisk-delay"
+            $irecovery -c ramdisk
+            sleep 2
+        fi
+        log "Sending DeviceTree..."
+        $irecovery -f $ramdisk_path/DeviceTree.dec
+        log "Running devicetree"
+        $irecovery -c devicetree
+        log "Sending KernelCache..."
+        $irecovery -f $ramdisk_path/Kernelcache.dec
+        $irecovery -c bootx
 
-    if [[ $1 == "justboot" ]]; then
-        log "Device should now boot."
+        if [[ $1 == "justboot" ]]; then
+            log "Device should now boot."
+            return
+        fi
+        log "Booting, please wait..."
+        sleep 6
+    fi
+    if [[ $just_boot == 1 ]]; then
+        log "Done,use ./sshrd32.sh ssh or ./sshrd32.sh --menu to connect device"
         return
-    fi
-    log "Booting, please wait..."
-    sleep 6
-
-    if [[ -n $1 ]]; then
-        device_iproxy
     else
-        device_iproxy no-logging
+        if [[ -n $1 ]]; then
+            device_iproxy
+        else
+            device_iproxy no-logging
+        fi
+        local found
+        log "Waiting for device..."
+        tip "* You may need to unplug and replug your device."
+        while [[ $found != 1 ]]; do
+            found=$($ssh -p $ssh_port root@127.0.0.1 "echo 1")
+            sleep 2
+        done
+        if [[ $device_proc == 1 || $device_type == "iPod2,1" ]]; then
+            log "Transferring some files"
+            tar -xvf ../resources/ssh.tar ./bin/chmod ./bin/chown ./bin/cp ./bin/dd ./bin/mount.sh ./bin/tar ./usr/bin/date ./usr/bin/df ./usr/bin/du
+            $ssh -p $ssh_port root@127.0.0.1 "rm -f /bin/mount.sh /usr/bin/date"
+            $scp -P $ssh_port bin/* root@127.0.0.1:/bin
+            $scp -P $ssh_port usr/bin/* root@127.0.0.1:/usr/bin
+        fi
+        
+        if [[ $no_menu != "1" ]]; then
+            ssh_menu
+        fi
+        if [[ $just_jailbreak == 1 ]]; then
+            jailbreak_sshrd
+        elif [[ $just_get_ios_ver == 1 ]]; then
+            check_iosvers
+        elif [[ $just_hacktivate == 1 ]]; then
+            device_hacktivate
+        elif [[ $just_part2 == 1 ]]; then
+            device_hacktivate_part2
+        fi
     fi
-    local found
-    log "Waiting for device..."
-    tip "* You may need to unplug and replug your device."
-    while [[ $found != 1 ]]; do
-        found=$($ssh -p $ssh_port root@127.0.0.1 "echo 1")
-        sleep 2
-    done
-    if [[ $device_proc == 1 || $device_type == "iPod2,1" ]]; then
-        log "Transferring some files"
-        tar -xvf ../resources/ssh.tar ./bin/chmod ./bin/chown ./bin/cp ./bin/dd ./bin/mount.sh ./bin/tar ./usr/bin/date ./usr/bin/df ./usr/bin/du
-        $ssh -p $ssh_port root@127.0.0.1 "rm -f /bin/mount.sh /usr/bin/date"
-        $scp -P $ssh_port bin/* root@127.0.0.1:/bin
-        $scp -P $ssh_port usr/bin/* root@127.0.0.1:/usr/bin
-    fi
-    if [[ $no_menu != "1" ]]; then
-        ssh_menu
-    fi
-    if [[ $just_jailbreak == 1 ]]; then
-        jailbreak_sshrd
-    elif [[ $just_get_ios_ver == 1 ]]; then
-        check_iosvers
-    fi
-
 }
 
 
 main() {
-    debug_func
+    if [[ $debug_mode == 1 ]]; then
+        debug_func
+    fi
     if [[ "$just_make" != "1" ]] && [[ -z "$device_type" ]]; then
-        checkmode DFU
+        if [[ "$ship_boot" != "1" ]]; then
+            checkmode DFU
+        fi
     fi
     device_info
     ramdisk
@@ -800,12 +819,13 @@ main() {
 
 ssh_menu() {
     local exit
-    if [[ "$without_boot" == "1" ]]; then
+    if [[ "$ship_boot" == "1" ]]; then
         device_iproxy
-        without_boot=
+        ship_boot=
     fi
     clear
     tip  "*** SSHRD_Script_32Bit ***"
+    tip  "- $platform_message -"
     tip  "- Script by MrY0000 -"
     tip  "- Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -"
     input "Select option:"
@@ -827,22 +847,8 @@ ssh_menu() {
     selected="${options[$?]}"
         case $selected in
             "SSH Connection")
-                exit
-                print "* For accessing data, note the following:"
-                print "* Host: sftp://127.0.0.1 | User: root | Password: alpine | Port: $ssh_port"
-                echo
-                print "* Other Useful SSH Ramdisk commands:"
-                print "* Clear NVRAM with this command:"
-                print "    nvram -c"
-                print "* Erase All Content and Settings with this command (iOS 9+ only):"
-                print "    nvram oblit-inprogress=5"
-                print "* To reboot, use this command:"
-                print "    reboot_bak"
-                print "* Remove Setup.app:"
-                print "    rm -rf /mnt1/Applications/Setup.app"
-                echo
+                ssh_message
                 $ssh -p $ssh_port root@127.0.0.1
-                pause
                 ;;
             "Activate Device")
                 activition; pause;;
@@ -859,7 +865,7 @@ ssh_menu() {
             "Clear NVRAM")
                 $ssh -p $ssh_port root@127.0.0.1 "nvram -c" ;;
             "Reboot")
-                $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"; go_to_menu;;
+                $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"; exit=1;;
             "Exit" )
                 exit=1
                 ;;
@@ -867,6 +873,23 @@ ssh_menu() {
     if [[ "$exit" != "1" ]]; then
         ssh_menu
     fi
+}
+
+ssh_message() {
+    print "* For accessing data, note the following:"
+    print "* Host: sftp://127.0.0.1 | User: root | Password: alpine | Port: $ssh_port"
+    echo
+    print "* Other Useful SSH Ramdisk commands:"
+    print "* Clear NVRAM with this command:"
+    print "    nvram -c"
+    print "* Erase All Content and Settings with this command (iOS 9+ only):"
+    print "    nvram oblit-inprogress=5"
+    print "* To reboot, use this command:"
+    print "    reboot_bak"
+    print "* Remove Setup.app:"
+    print "    rm -rf /mnt1/Applications/Setup.app"
+    echo
+
 }
 
 ###functions###
@@ -896,8 +919,16 @@ check_iosvers() {
     if [[ -n $device_vers ]]; then
         log "Get iOS Version successfully"
         tip "* iOS Version: $device_vers ($device_build)"
+        if [[ $1 != nopause ]]; then
+            pause
+            return
+        fi
     else
         error "Unable get iOS Version"
+        if [[ $1 != nopause ]]; then
+            pause
+            return
+        fi
     fi
 }
 
@@ -915,7 +946,8 @@ jailbreak_sshrd() {
     local build
     local untether
     jelbrek=../resources/Jailbreak
-    check_iosvers
+    device_jailbreak=1
+    check_iosvers nopause
     vers=$device_vers
     build=$device_build
 
@@ -927,8 +959,12 @@ jailbreak_sshrd() {
 
     if [[ -n $($ssh -p $ssh_port root@127.0.0.1 "ls /mnt1/bin/bash 2>/dev/null") ]]; then
         warning "Your device seems to be already jailbroken. Cannot continue."
-        $ssh -p "$ssh_port" root@127.0.0.1 "reboot_bak"
-        return
+        if [[ $just_jailbreak == 1 ]]; then
+            $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+        else
+            pause
+            return
+        fi
     fi
 
     case $vers in
@@ -964,14 +1000,23 @@ jailbreak_sshrd() {
         3* ) [[ $device_type == "iPhone2,1" ]] && untether=1;;
         '' )
             warning "Something wrong happened. Failed to get iOS version."
-            $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+            if [[ $just_jailbreak == 1 ]]; then
+                $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+            else
+                pause
+                return
+            fi
         ;;
     esac
 
     if [[ -z $untether ]]; then
         warning "iOS $vers is not supported for jailbreaking with SSHRD."
-        $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
-        return
+        if [[ $just_jailbreak == 1 ]]; then
+            $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+        else
+            pause
+            return
+        fi
     fi
     log "Nice, iOS $vers is compatible."
     log "Mounting data partition"
@@ -1043,6 +1088,99 @@ jailbreak_sshrd() {
     log "Jailbreak successfully✅"
 }
 
+device_hacktivate() {
+    local ver
+    local build
+    local 
+    log Get ios version
+    check_iosvers
+    cut_os_vers $device_vers
+    case $major_ver in
+        [56]* )
+            if [[ -n $($ssh -p $ssh_port root@127.0.0.1 "ls /mnt1/bin/bash 2>/dev/null") ]]; then
+                log Great,this device has been jailbroken,continue
+            else
+                yesno "Since jailbreaking is required for hacktivate-activation in iOS 5-6, do you want jailbreak? (y > jailbreak) (n > go to ssh menu)"
+                if [[ $? == 1 ]]; then
+                    jailbreak_sshrd noreboot
+                    if [[ -n $($ssh -p $ssh_port root@127.0.0.1 "ls /mnt1/bin/bash 2>/dev/null") ]]; then
+                        log Great,this device has been jailbroken,continue
+                    else
+                        error "This device also hasn't jailbroken,press enter to go to ssh menu"
+                        ssh_menu
+                        return
+                    fi
+                else
+                    ssh_menu
+                    return
+                fi
+            fi
+            log Mount Filesystem
+            $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+            log Rename orgin file
+            $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/usr/libexec/lockdownd /mnt1/usr/libexec/lockdownd.bak"
+            log upload new file
+            $scp -P $ssh_port $script_dir/bin/Others/lockdownd root@127.0.0.1:/mnt1/usr/libexec
+            log Set permissions
+            $ssh -p $ssh_port root@127.0.0.1 "chmod 755 /mnt1/usr/libexec/lockdownd"
+            log Rebooting
+            $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+            go_to_menu
+            ;;
+        [789]* )
+            log Mount Filesystem
+            $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+            log Download files
+            $ssh -p $ssh_port root@127.0.0.1 "mv /mnt2/mobile/Library/Caches/com.apple.MobileGestalt.plist /mnt2/mobile/Media"
+            local message=$($ssh -p $ssh_port root@127.0.0.1 "ls /mnt2/mobile/Media/com.apple.MobileGestalt.plist")
+            if [[ $message != "/mnt2/mobile/Media/com.apple.MobileGestalt.plist" ]]; then
+                error Download failed
+                pause Press enter to go to ssh menu
+                ssh_menu
+                return
+            else
+                #part1
+                log Rebooting
+                pause
+                $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+                sleep 5
+                checkmode normal
+                log 请信任设备后按回车
+                pause
+                $afc download /com.apple.MobileGestalt.plist $tmp
+                if [[ ! -f "$tmp/com.apple.MobileGestalt.plist" ]]; then
+                    error Download failed
+                    pause Press enter to exit
+                    return
+                else
+                    log "Patch files"
+                    $activition $tmp/com.apple.MobileGestalt.plist
+                    log Upload files
+                    $afc upload $tmp/com.apple.MobileGestalt.plist /
+                fi
+            fi
+            log "Done,part1 has been completed,use ./sshrd32.sh --hac-part-2 to start part 2"
+            ;;
+        * )
+            warning This iOS version is unsupport
+            pause Press enter to enter ssh menu
+            ;;
+    esac
+}
+
+device_hacktivate_part2() {
+    ##part2
+    log Mount Filesystem
+    $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+    log Rename Setup.app
+    $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/Applications/Setup.app /mnt1/Applications/Setup.app.bak"
+    log Replace original files
+    $ssh -p $ssh_port root@127.0.0.1 "mv /mnt2/mobile/Library/Caches/com.apple.MobileGestalt.plist /mnt2/mobile/Library/Caches/com.apple.MobileGestalt.plist.bak"
+    $ssh -p $ssh_port root@127.0.0.1 "mv /mnt2/mobile/Media/com.apple.MobileGestalt.plist /mnt2/mobile/Library/Caches"
+    log Rebooting
+    $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+}
+
 
 ###tools###
 
@@ -1103,13 +1241,7 @@ get_firmware_info() {
     curl -s -L "https://api.ipsw.me/v4/device/$device_type?type=ipsw" -o tmp.json
     JSON_FILE=tmp.json
     if [[ ! -f "tmp.json" ]]; then
-        error 获取固件信息失败
-        yesno 是否继续？
-        if [[ $? == 1 ]]; then
-            filecheck=1
-        else
-            go_to_menu
-        fi
+        error Unable get json,please check internat connection
     fi
     if [[ $1 == "ver" ]]; then
         version=$2
@@ -1327,6 +1459,10 @@ clean() {
     fi
 }
 
+display_help() {
+    
+}
+
 function select_option() {
     if [[ $menu_old == 1 ]]; then
         select opt in "$@"; do
@@ -1433,12 +1569,8 @@ function yesno() {
 }
 
 
-
-
-
 debug_func() {
-    log $device_type
-    log $just_make
+    log 1
     pause
 }
 
@@ -1450,7 +1582,6 @@ mkdir ../saved 2>/dev/null
 oscheck
 set_ssh_config
 set_path
-#set args
 for i in "$@"; do
     case "$i" in
         --version=* )
@@ -1458,6 +1589,9 @@ for i in "$@"; do
             ;;
         --ship-ssh-check )
             ship_ssh_check=1
+            ;;
+        --ship-boot )
+            device_argmode=none
             ;;
         --ship-build-check )
             warning Without check the build process may cause errors.
@@ -1476,6 +1610,9 @@ for i in "$@"; do
         --debug )
             debug=1
             ;;
+        --debug-mode )
+            debug_mode=1
+            ;;
         --make )
             just_make=1
             device_argmode=none
@@ -1487,17 +1624,49 @@ for i in "$@"; do
             no_menu=0
             just_jailbreak=1
             ;;
+        --hacktivate )
+            no_menu=1
+            just_hacktivate=1
+            ;;
+        --get-ios-ver )
+            just_get_ios_ver=1
+            no_menu=1
+            ;;
         --help | --h )
             script_help=1
+            ;;
+         --hac-part-2 )
+            no_menu=1
+            just_part2=1
             ;;
         --reboot )
             device_iproxy
             $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
             exit 1
             ;;
+        #legacy part,from SSHRD
+        [0-9]*.[0-9]* )
+            arg_l=1
+            device_rd_build_custom="$i"
+            device_argmode=none
+            ;;
+        [0-9]*[A-Za-z][0-9]* )
+            arg_l=1
+            device_rd_build_custom="$i"
+            device_argmode=none
+            ;;
+        --boot | boot )
+            just_boot=1
+            nomenu=1
+            ;;
+        --ssh | ssh )
+            device_iproxy
+            ssh_message
+            $ssh -p $ssh_port root@127.0.0.1
+            exit 1
+            ;;
     esac
 done
-
 main
 #debug_func
 popd >/dev/null
