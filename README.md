@@ -15,7 +15,7 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - Add `--make` make ssh ramdisk only, without boot
 - Add `--reboot` reboot device in sshrd
 ## Current Bugs
-- A5 device can’t use
+- A6 device can’t pwn
 - ...
 ## Future
 - Will update Jailbreak,hacktivation and so on
@@ -26,3 +26,5 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - commit 4 Update readme again
 - commit 5 add simplify args,update readme
 - commit 6 fix sh
+- commit 7 update readme
+- commit 8 fix a5 pwn，fix some small problems，add patches

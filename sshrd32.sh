@@ -60,10 +60,10 @@ input() {
 }
 
 pause() {
-    if [ -z "$1" ]; then
+    if [ -z "$@" ]; then
         input "Press Enter/Return to continue (or press Ctrl+C to cancel)"
     else
-        input "$1 (or press Ctrl+C to cancel)"
+        input "$@ (or press Ctrl+C to cancel)"
     fi
     read -s
 }
@@ -318,35 +318,49 @@ ssh_check() {
 checkmode() {
     if [ "$1" = "DFU" ]; then
         if ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (DFU Mode)' >> /dev/null); then
-            log "[*] Waiting for the device to enter DFU mode"
+            if [[ "$2" != "none" ]]; then
+                log "[*] Waiting for the device to enter DFU mode"
+            fi
         fi
-        
         while ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (DFU Mode)' >> /dev/null); do
             sleep 1
         done
     elif [ "$1" = "rec" ]; then
         if ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (Recovery Mode)' >> /dev/null); then
-            log "[*] Waiting for the device to enter Recovery mode"
+            if [[ "$2" != "none" ]]; then
+                log "[*] Waiting for the device to enter Recovery mode"
+            fi
         fi
-        
         while ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (Recovery Mode)' >> /dev/null); do
             sleep 1
         done
     elif [ "$1" = "nor" ]; then
         if ! (system_profiler SPUSBDataType 2> /dev/null | grep -E ' (iPod|iPhone|iPad)' >> /dev/null); then
-            log "[*] Waiting for the device to enter Normal mode"
+            if [[ "$2" != "none" ]]; then
+                log "[*] Waiting for the device to enter Normal mode"
+            fi
         fi
-        
         while ! (system_profiler SPUSBDataType 2> /dev/null | grep -E ' (iPod|iPhone|iPad)' >> /dev/null); do
             sleep 1
         done
     elif [ "$1" = "DFUreal" ]; then
         if ! (system_profiler SPUSBDataType 2> /dev/null | grep ' USB DFU Device' >> /dev/null); then
-            log "[*] Waiting for the device to enter DFU mode"
+            if [[ "$2" != "none" ]]; then
+                log "[*] Waiting for the device to enter DFU mode"
+            fi
         fi
-        
         while ! (system_profiler SPUSBDataType 2> /dev/null | grep ' USB DFU Device' >> /dev/null); do
             sleep 1
+        done
+    elif [ "$1" = "DFUall" ]; then
+        while true;do
+            if (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (DFU Mode)' >> /dev/null); then
+                break
+            fi
+            sleep 1
+            if (system_profiler SPUSBDataType 2> /dev/null | grep ' USB DFU Device' >> /dev/null); then
+                break
+            fi
         done
     fi
 }
@@ -370,41 +384,6 @@ device_info() {
     if [ ! -d "$saved/$device_type" ]; then
         mkdir $saved/$device_type
     fi
-    case $device_type in
-        "iPhone1,1") device_name="iPhone 2G";;
-        "iPhone1,2") device_name="iPhone 3G";;
-        "iPhone2,1") device_name="iPhone 3GS";;
-        "iPhone3,1") device_name="iPhone 4 (GSM)";;
-        "iPhone3,2") device_name="iPhone 4 (GSM, Rev A)";;
-        "iPhone3,3") device_name="iPhone 4 (CDMA)";;
-        "iPhone4,1") device_name="iPhone 4S";;
-        "iPhone5,1") device_name="iPhone 5 (GSM)";;
-        "iPhone5,2") device_name="iPhone 5 (Global)";;
-        "iPhone5,3") device_name="iPhone 5C (GSM)";;
-        "iPhone5,4") device_name="iPhone 5C (Global)";;
-        "iPad1,1") device_name="iPad 1";;
-        "iPad2,1") device_name="iPad 2 (Wi-Fi)";;
-        "iPad2,2") device_name="iPad 2 (GSM)";;
-        "iPad2,3") device_name="iPad 2 (CDMA)";;
-        "iPad2,4") device_name="iPad 2 (Wi-Fi, Rev A)";;
-        "iPad2,5") device_name="iPad mini 1 (Wi-Fi)";;
-        "iPad2,6") device_name="iPad mini 1 (GSM)";;
-        "iPad2,7") device_name="iPad mini 1 (Global)";;
-        "iPad3,1") device_name="iPad 3 (Wi-Fi)";;
-        "iPad3,2") device_name="iPad 3 (CDMA)";;
-        "iPad3,3") device_name="iPad 3 (GSM)";;
-        "iPad3,4") device_name="iPad 4 (Wi-Fi)";;
-        "iPad3,5") device_name="iPad 4 (GSM)";;
-        "iPad3,6") device_name="iPad 4 (Global)";;
-        "iPod1,1") device_name="iPod touch 1";;
-        "iPod2,1") device_name="iPod touch 2";;
-        "iPod3,1") device_name="iPod touch 3";;
-        "iPod4,1") device_name="iPod touch 4";;
-        "iPod5,1") device_name="iPod touch 5";;
-        * )
-            warning "This script only provides 32 bit device,if you want to use sshrd on 64 bit device,please use  https://github.com/iPh0ne4s/SSHRD_Script"
-            exit
-    esac
     case $device_type in
         iPhone1,* | iPod1,1 )
             device_proc=1;; # S5L8900
@@ -452,28 +431,58 @@ device_info() {
 
 ######pwn######
 device_pwn() {
+    local a5
     log Getting device info and pwning... this may take a second
-    device_pwnd="$($irecovery -q | grep "PWND" | cut -c 7-)"
     if [[ -z $device_pwnd ]]; then
         case $device_proc in
-            1 ) device_send_unpacked_ibss ;;
-            4 ) $ipwnder ;;
-            5 ) A5_pwn ;;
+            1 ) device_s5l8900xall ;;
+            4 ) 
+            case $device_type in
+                iPad1,1 | iPhone3,* | iPod[24],1 )
+                log Pwn:primepwn
+                $primepwn
+                ;;
+                * )
+                log Pwn:ipwnder
+                $ipwnder
+                ;;
+            esac
+             ;;
+            5 ) a5=1 ;;
             6 ) $ipwnder ;;
         esac
     fi
-    device_pwnd1="$($irecovery -q | grep "PWND" | cut -c 7-)"
-    if [[ -n $device_pwnd1 ]]; then
-        log Device has been pwned✅
-    else
-        error "Unable to pwn device❎(close i4/3u tools and try again)"
-        exit 1
+    if [[ $device_proc == 5 ]]; then
+        if [[ $ship_send_pwnibss != 1 ]]; then 
+            while true; do
+                local device_pwnd2="$($irecovery -q | grep "PWND" | cut -c 7-)"
+                if [ "$device_pwnd2" != "checkm8" ]; then
+                    print "pwn a5 device needs Arduino+USB Host Shield or Pi Pico"
+                    pause when you have been pwned,press enter to continue
+                else
+                    break
+                fi
+            done
+            device_send_unpacked_ibss
+        else
+            warning make sure you have been sent pwnibss
+            pause press enter to continue
+        fi
+    fi
+     device_pwnd1="$($irecovery -q | grep "PWND" | cut -c 7-)"
+    if [[ $device_proc != 1 ]]; then
+        if [[ $device_proc != 5 ]]; then
+            if [[ -n $device_pwnd1 ]]; then
+                log Device has been pwned✅
+            else
+                error "Unable to pwn device❎(close i4/3u tools and try again)"
+                exit 1
+            fi
+        fi
     fi
 }
 
 device_send_unpacked_ibss() {
-    log $primepwn
-    pause
     local pwnrec="pwned iBSS"
     device_rd_build=
     patch_ibss
@@ -490,9 +499,11 @@ device_send_unpacked_ibss() {
     device_pwnd="$(echo "$irec" | grep "PWND" | cut -c 7-)"
     if [[ -z $device_pwnd && $irec != "ERROR"* ]]; then
         log "Device should now be in $pwnrec mode."
+        log Device has been pwned✅
     else
         error "Device failed to enter $pwnrec mode."
-        exit
+        error "Unable to pwn device❎(close i4/3u tools and try again)"
+        exit 1
     fi
 }
 
@@ -525,7 +536,6 @@ ramdisk() {
         iPod3,1 | iPad1,1 ) device_target_build="9B206";;
         iPhone2,1 | iPod4,1 ) device_target_build="10B500";;
         iPhone5,[34] ) device_target_build="11D257";;
-        iPod5,1 ) device_target_build="13A452";;
         * ) device_target_build="10B329";;
     esac
     if [[ -n $device_rd_build_custom ]]; then
@@ -732,13 +742,14 @@ ramdisk() {
             $irecovery -f $ramdisk_path/iBSS
         fi
         sleep 2
-        #if [[ $build_id != "7"* && $build_id != "8"* ]]; then
+        #if [[ $build_id != "7"* && $build_id != "8"* ]]; then #someting wrong here
+        if [[ $device_proc != 1 ]]; then
             log "Sending iBEC..."
             $irecovery -f $ramdisk_path/iBEC
             if [[ $device_pwnrec == 1 ]]; then
                 $irecovery -c "go"
             fi
-        #fi
+        fi
         sleep 3
         checkmode rec
         if [[ $1 != "justboot" ]]; then
@@ -776,8 +787,14 @@ ramdisk() {
         local found
         log "Waiting for device..."
         tip "* You may need to unplug and replug your device."
+        local try=0
         while [[ $found != 1 ]]; do
-            found=$($ssh -p $ssh_port root@127.0.0.1 "echo 1")
+            found=$($ssh -p $ssh_port root@127.0.0.1 "echo 1" 2>/dev/null)
+            try=$((try + 1))
+            if [[ $try == 10 ]]; then
+                error "Unable to connect SSH, please try boot again"
+                return 1
+            fi
             sleep 2
         done
         if [[ $device_proc == 1 || $device_type == "iPod2,1" ]]; then
@@ -810,7 +827,8 @@ main() {
     fi
     if [[ "$just_make" != "1" ]] && [[ -z "$device_type" ]]; then
         if [[ "$ship_boot" != "1" ]]; then
-            checkmode DFU
+            log "[*] Waiting for the device to enter DFU mode"
+            checkmode DFUall
         fi
     fi
     device_info
@@ -822,6 +840,9 @@ ssh_menu() {
     if [[ "$ship_boot" == "1" ]]; then
         device_iproxy
         ship_boot=
+    fi
+    if [[ $debug_mode == 1 ]]; then
+        pause
     fi
     clear
     tip  "*** SSHRD_Script_32Bit ***"
@@ -1086,6 +1107,7 @@ jailbreak_sshrd() {
     fi
 
     log "Jailbreak successfully✅"
+    exit=1
 }
 
 device_hacktivate() {
@@ -1317,6 +1339,41 @@ device_iproxy() {
     sleep 1
 }
 
+device_s5l8900xall() {
+    local wtf_sha="cb96954185a91712c47f20adb519db45a318c30f"
+    local wtf_saved="../saved/WTF.s5l8900xall.RELEASE.dfu"
+    local wtf_patched="$wtf_saved.patched"
+    local wtf_patch="../resources/patch/WTF.s5l8900xall.RELEASE.patch"
+    local wtf_sha_local="$($sha1sum "$wtf_saved" 2>/dev/null | awk '{print $1}')"
+    mkdir ../saved 2>/dev/null
+    if [[ $wtf_sha_local != "$wtf_sha" ]]; then
+        log "Downloading WTF.s5l8900xall"
+        "$dir/pzb" -g "Firmware/dfu/WTF.s5l8900xall.RELEASE.dfu" -o WTF.s5l8900xall.RELEASE.dfu "http://appldnld.apple.com/iPhone/061-7481.20100202.4orot/iPhone1,1_3.1.3_7E18_Restore.ipsw"
+        rm -f "$wtf_saved"
+        mv WTF.s5l8900xall.RELEASE.dfu $wtf_saved
+    fi
+    wtf_sha_local="$($sha1sum "$wtf_saved" | awk '{print $1}')"
+    if [[ $wtf_sha_local != "$wtf_sha" ]]; then
+        error "SHA1sum mismatch. Expected $wtf_sha, got $wtf_sha_local. Please run the script again"
+    fi
+    rm -f "$wtf_patched"
+    log "Patching WTF.s5l8900xall"
+    $bspatch $wtf_saved $wtf_patched $wtf_patch
+    log "Sending patched WTF.s5l8900xall (Pwnage 2.0)"
+    $irecovery -f "$wtf_patched"
+    checkmode DFU
+    sleep 1
+    device_srtg="$($irecovery -q | grep "SRTG" | cut -c 7-)"
+    log "SRTG: $device_srtg"
+    if [[ $device_srtg == "iBoot-636.66.3x" ]]; then
+        device_argmode=
+        device_type=$($irecovery -q | grep "PRODUCT" | cut -c 10-)
+        device_model=$($irecovery -q | grep "MODEL" | cut -c 8-)
+        device_model="${device_model%??}"
+        device_pwnd="Pwnage 2.0"
+    fi
+}
+
 device_fw_key_check() {
     # check and download keys for device_target_build, then set the variable device_fw_key (or device_fw_key_base)
     #remove download part , replace use unzip
@@ -1459,6 +1516,19 @@ clean() {
     fi
 }
 
+display_help() {
+ print "Run ./sshrd32.sh use default version"
+ print "Simplify Args"
+ print "1. ./sshrd32.sh "ios ver/build ver"  use custom version,only support ios verion and ios build version"
+ print "2. ./sshrd32.sh boot  boot ramdisk after make"
+ print "3. ./sshrd32.sh ssh  connect ssh"
+ print Args
+ print "Add --version=“ramdisk build ver”/“ramdisk ver” use custom version,only support ios verion and ios build version"
+ print "Add --device="iPhone/iPad/iPodx,x" custom device_type,without device check"
+ print "Add --menu  directly access the menu"
+ print "Add --make make ssh ramdisk only, without boot"
+ print "Add --reboot reboot device in sshrd"
+}
 
 function select_option() {
     if [[ $menu_old == 1 ]]; then
@@ -1618,7 +1688,7 @@ for i in "$@"; do
            device_type="${i#--device=}"
             ;;
         --jailbreak | --jb )
-            no_menu=0
+            no_menu=1
             just_jailbreak=1
             ;;
         --hacktivate )
@@ -1630,7 +1700,8 @@ for i in "$@"; do
             no_menu=1
             ;;
         --help | --h )
-            script_help=1
+            display_help
+            exit 1
             ;;
          --hac-part-2 )
             no_menu=1
