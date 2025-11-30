@@ -1459,9 +1459,6 @@ clean() {
     fi
 }
 
-display_help() {
-    
-}
 
 function select_option() {
     if [[ $menu_old == 1 ]]; then
