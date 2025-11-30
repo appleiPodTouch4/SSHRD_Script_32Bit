@@ -25,3 +25,4 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - commit 3 rm some useless tools,add --device= ,--verion= arg,update readme
 - commit 4 Update readme again
 - commit 5 add simplify args,update readme
+- commit 6 fix sh
