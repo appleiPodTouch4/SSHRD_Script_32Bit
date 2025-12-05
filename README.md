@@ -14,6 +14,7 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - Add `--menu”` directly access the menu
 - Add `--make` make ssh ramdisk only, without boot
 - Add `--reboot` reboot device in sshrd
+- Add `--password` bruteforce password(only support 4-digit password)
 ## Current Bugs
 - A6 device can’t pwn
 - ...
@@ -29,3 +30,4 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - commit 7 update readme
 - commit 8 fix a5 pwn，fix some small problems，add patches
 - commit 9 add bruteforce password(only support 4-digit password),and fix some bugs 
+- commit 10 update readme
