@@ -28,3 +28,4 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - commit 6 fix sh
 - commit 7 update readme
 - commit 8 fix a5 pwn，fix some small problems，add patches
+- commit 9 add bruteforce password(only support 4-digit password),and fix some bugs 

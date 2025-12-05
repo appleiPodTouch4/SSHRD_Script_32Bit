@@ -6,6 +6,8 @@ ssh_port=2222
 isoscheck=1
 jelbrek=../resources/Jailbreak
 script_path=$(dirname "$0")/$(basename "$0")
+enable_latest_enter=1
+ship_build_check=0
 
 if [[ "$debug" == "1" ]]; then
     menu_old=1
@@ -266,6 +268,7 @@ set_path() {
     aria2c+=$dir/aria2c
     tsschecker+=$dir/tsschecker
     z7z+=$dir/7zz
+    afc+=$dir/afc_tool
     sha1sum="$(command -v shasum) -a 1"
 }
 
@@ -469,15 +472,17 @@ device_pwn() {
             pause press enter to continue
         fi
     fi
-     device_pwnd1="$($irecovery -q | grep "PWND" | cut -c 7-)"
+    device_pwnd1="$($irecovery -q | grep "PWND" | cut -c 7-)"
     if [[ $device_proc != 1 ]]; then
-        if [[ $device_proc != 5 ]]; then
+        if [[ $device_proc != 5 && $device_proc != 6 ]]; then
             if [[ -n $device_pwnd1 ]]; then
                 log Device has been pwned✅
             else
                 error "Unable to pwn device❎(close i4/3u tools and try again)"
                 exit 1
             fi
+        else
+            log "Device has been pwned✅(may be)"
         fi
     fi
 }
@@ -561,7 +566,17 @@ ramdisk() {
         else
             device_rd_build=$device_rd_build_custom
         fi
-        tip "use custom version:$device_rd_build"
+        tip "Use custom version:$device_rd_build"
+    elif [[ -n $device_rd_build_custom ]]; then
+        if [[ $ship_build_check != 1 ]]; then
+            log Get version info
+            get_firmware_info build $device_target_build
+            if [ -z "$url" ]; then
+                error Unable get url of this version
+                pause
+                exit 1
+            fi
+        fi
     fi
     if [[ -n $device_rd_build ]]; then
         device_target_build=$device_rd_build
@@ -816,6 +831,25 @@ ramdisk() {
             device_hacktivate
         elif [[ $just_part2 == 1 ]]; then
             device_hacktivate_part2
+        elif [[ $just_password == 1 ]]; then
+            device_bruteforce
+        fi
+    fi
+}
+
+lastest_enter() {
+    local options=()
+    local selected
+    if [[ $enable_latest_enter == 1 ]]; then
+        options+=("Go to Menu")
+        options+=("Reboot")
+        log What do you want to do at latest?
+        select_option "${options[@]}"
+        selected="${options[$?]}"
+        if [[ $selected == "Go to Menu" ]]; then
+            ssh_menu
+        else
+            $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"; exit=1
         fi
     fi
 }
@@ -833,10 +867,14 @@ main() {
     fi
     device_info
     ramdisk
+    if [[ $no_menu == 1 ]]; then
+        latest_enter
+    fi
 }
 
 ssh_menu() {
-    local exit
+    local options=()
+    local selected
     if [[ "$ship_boot" == "1" ]]; then
         device_iproxy
         ship_boot=
@@ -850,8 +888,6 @@ ssh_menu() {
     tip  "- Script by MrY0000 -"
     tip  "- Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -"
     input "Select option:"
-    local options=()
-    local selected
     options+=("SSH Connection")
     options+=("Jailbreak")
     #options+=("Activate Device")
@@ -859,7 +895,7 @@ ssh_menu() {
     #options+=("Backup Activation Files")
     #options+=("Restore Activation Files")
     options+=("Check iOS Version")
-    #options+=("Enable Battery Percentage")
+    options+=("Brute-force password cracking")
     options+=("Clear NVRAM")
     options+=("Reboot")
     options+=("Exit")
@@ -874,18 +910,20 @@ ssh_menu() {
             "Activate Device")
                 activition; pause;;
             "Pseudo Activation TEST")
-                hacktivate_device; go_to_menu ;;
+                hacktivate_device ;;
             "Jailbreak")
                 jailbreak_sshrd; pause;;
             "Backup Activation Files")
                 activition_backup; pause;;
             "Check iOS Version")
-                check_iosvers; pause;;
-            "Enable Battery Percentage")
-                device_add_battery_percentage; pause;;
+                check_iosvers ;;
+            "Brute-force password cracking")
+                device_bruteforce; pause;;
             "Clear NVRAM")
-                $ssh -p $ssh_port root@127.0.0.1 "nvram -c" ;;
+                log Clear NVRAM
+                $ssh -p $ssh_port root@127.0.0.1 "nvram -c" ; pause;;
             "Reboot")
+                log Rebooting
                 $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"; exit=1;;
             "Exit" )
                 exit=1
@@ -1150,6 +1188,10 @@ device_hacktivate() {
             go_to_menu
             ;;
         [789]* )
+            if [[ $platform == linux ]]; then
+                warnning afc_tool is unsupport for linux,wait for commit
+                return
+            fi
             log Mount Filesystem
             $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
             log Download files
@@ -1166,19 +1208,24 @@ device_hacktivate() {
                 pause
                 $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
                 sleep 5
-                checkmode normal
-                log 请信任设备后按回车
+                checkmode nor
+                log Please trust the device and press Enter.
                 pause
-                $afc download /com.apple.MobileGestalt.plist $tmp
-                if [[ ! -f "$tmp/com.apple.MobileGestalt.plist" ]]; then
+                $afc download /com.apple.MobileGestalt.plist .
+                if [[ ! -f "com.apple.MobileGestalt.plist" ]]; then
                     error Download failed
                     pause Press enter to exit
                     return
                 else
                     log "Patch files"
-                    $activition $tmp/com.apple.MobileGestalt.plist
+                    $afc activation com.apple.MobileGestalt.plist
+                    if [[ ! -f "com.apple.MobileGestalt.plist.backup" ]]; then
+                        error Patch files failed
+                        pause
+                        return
+                    fi
                     log Upload files
-                    $afc upload $tmp/com.apple.MobileGestalt.plist /
+                    $afc upload com.apple.MobileGestalt.plist /
                 fi
             fi
             log "Done,part1 has been completed,use ./sshrd32.sh --hac-part-2 to start part 2"
@@ -1201,6 +1248,18 @@ device_hacktivate_part2() {
     $ssh -p $ssh_port root@127.0.0.1 "mv /mnt2/mobile/Media/com.apple.MobileGestalt.plist /mnt2/mobile/Library/Caches"
     log Rebooting
     $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+}
+
+device_bruteforce() {
+    log Mount Filesystem
+    $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+    log Upload files
+    $scp -P $ssh_port ../resources/bruteforce root@127.0.0.1:/var/root
+    $ssh -p $ssh_port root@127.0.0.1 "chmod +x bruteforce"
+    $ssh -p $ssh_port root@127.0.0.1 "./bruteforce -u"
+    log When it finished, the last one is the password.
+    pause
+    ssh_menu
 }
 
 
@@ -1670,6 +1729,7 @@ for i in "$@"; do
             fi
             ;;
         --menu )
+            device_iproxy
             without_boot=1
             ssh_menu
             exit
@@ -1691,7 +1751,11 @@ for i in "$@"; do
             no_menu=1
             just_jailbreak=1
             ;;
-        --hacktivate )
+        --password )
+            no_menu=1
+            just_password=1
+            ;;
+        --hacktivate | --hac )
             no_menu=1
             just_hacktivate=1
             ;;
@@ -1702,6 +1766,10 @@ for i in "$@"; do
         --help | --h )
             display_help
             exit 1
+            ;;
+        -hac )
+            just_hac=1
+            no_menu=1
             ;;
          --hac-part-2 )
             no_menu=1
