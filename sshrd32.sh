@@ -6,7 +6,7 @@ ssh_port=2222
 isoscheck=1
 jelbrek=../resources/Jailbreak
 script_path=$(dirname "$0")/$(basename "$0")
-enable_latest_enter=1
+enable_latest_enter=0
 ship_build_check=0
 
 if [[ "$debug" == "1" ]]; then
@@ -294,29 +294,6 @@ set_ssh_config() {
     fi
 }
 
-ssh_check() {
-    local message
-    if [[ "$1" == "$ssh_port" ]]; then
-        local port=$ssh_port
-    elif [[ "$ship_ssh_check" == 1 ]]; then
-        return
-    else
-        local port=$openssh_port
-    fi
-    message=$($ssh -p $ssh_port root@127.0.0.1 "echo sshtest")
-    if [[ "$message" == "sshtest" ]]; then
-        if [[ "$2" != "q" ]]; then
-            log SSH connection successful✅
-        fi
-        sshyes=1
-    else
-        if [[ "$2" != "q" ]]; then
-            log "SSH connection failed ❎ (You can try adding --ship-ssh-check and --menu to the end of the script to access the SSH menu)"
-        fi
-        sshyes=no
-        go_to_menu
-    fi
-}
 
 checkmode() {
     if [ "$1" = "DFU" ]; then
@@ -868,7 +845,7 @@ main() {
     device_info
     ramdisk
     if [[ $no_menu == 1 ]]; then
-        latest_enter
+        lastest_enter
     fi
 }
 
@@ -895,6 +872,7 @@ ssh_menu() {
     #options+=("Backup Activation Files")
     #options+=("Restore Activation Files")
     options+=("Check iOS Version")
+    options+=("Bypass(iOS5-iOS10)")
     options+=("Brute-force password cracking")
     options+=("Clear NVRAM")
     options+=("Reboot")
@@ -919,6 +897,8 @@ ssh_menu() {
                 check_iosvers ;;
             "Brute-force password cracking")
                 device_bruteforce; pause;;
+            "Bypass(iOS5-iOS10)")
+                device_hacktivate; pause;;
             "Clear NVRAM")
                 log Clear NVRAM
                 $ssh -p $ssh_port root@127.0.0.1 "nvram -c" ; pause;;
@@ -1034,7 +1014,7 @@ jailbreak_sshrd() {
         7.1* )
             case $device_type in
                 iPod* ) untether="panguaxe-ipod.tar";;
-                *     ) untether="panguaxe.tar";;
+                * ) untether="panguaxe.tar";;
             esac
         ;;
         7.0* ) # remove for lyncis 7.0.x
@@ -1152,10 +1132,21 @@ device_hacktivate() {
     local ver
     local build
     local 
-    log Get ios version
+    log Get iOS version
     check_iosvers
     cut_os_vers $device_vers
-    case $major_ver in
+    log $device_rd_build_custom
+    log Mount Filesystem
+    $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+    if (( major_ver > 9 )); then
+        local message=$($ssh -p $ssh_port root@127.0.0.1 "ls /mnt2")
+        if [[ $message == "" ]]; then
+            warning "This version of ramdisk cannot mount /mnt2,please use “./sshrd32.sh --version=9.0.2 --bypass” and try again"
+            pause
+            return
+        fi
+    fi
+    case $device_vers in
         [56]* )
             if [[ -n $($ssh -p $ssh_port root@127.0.0.1 "ls /mnt1/bin/bash 2>/dev/null") ]]; then
                 log Great,this device has been jailbroken,continue
@@ -1175,27 +1166,69 @@ device_hacktivate() {
                     return
                 fi
             fi
-            log Mount Filesystem
-            $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
             log Rename orgin file
             $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/usr/libexec/lockdownd /mnt1/usr/libexec/lockdownd.bak"
             log upload new file
             $scp -P $ssh_port $script_dir/bin/Others/lockdownd root@127.0.0.1:/mnt1/usr/libexec
             log Set permissions
             $ssh -p $ssh_port root@127.0.0.1 "chmod 755 /mnt1/usr/libexec/lockdownd"
+            yesno Do you want to rename Setup.app?
+            if [[ $? == 1 ]]; then
+                $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/Applications/Setup.app /mnt1/Applications/Setup.app.bak"
+            fi
             log Rebooting
             $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
             go_to_menu
             ;;
-        [789]* )
+        [78]* | 9.[012]* )
+            log "Download files"
+            $scp -P $ssh_port root@127.0.0.1:/mnt2/mobile/Library/Caches/com.apple.MobileGestalt.plist .
+            if [[ ! -f "com.apple.MobileGestalt.plist" ]]; then
+                error Download files failed
+                pause
+                return
+            else
+                log "Add key to files"
+                $afc activation com.apple.MobileGestalt.plist
+                if [[ ! -f "com.apple.MobileGestalt.plist.backup" ]]; then
+                    error "Add key failed"
+                    pause
+                    return
+                fi
+                cp com.apple.MobileGestalt.plist.backup ../saved/$device_type
+                mv ../saved/$device_type/com.apple.MobileGestalt.plist.backup ../saved/$device_type/com.apple.MobileGestalt.plist.$(date '+%Y-%m-%d-%H-%M-%S').backup
+
+            fi
+            log Replace original files
+            $ssh -p $ssh_port root@127.0.0.1 "mv /mnt2/mobile/Library/Caches/com.apple.MobileGestalt.plist /mnt2/mobile/Library/Caches/com.apple.MobileGestalt.plist.bak"
+            log Upload files
+            $scp -P $ssh_port com.apple.MobileGestalt.plist root@127.0.0.1:/mnt2/mobile/Library/Caches
+            log Rename Setup.app
+            $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/Applications/Setup.app /mnt1/Applications/Setup.app.bak"
+            log Rebooting
+            $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+            log Done
+            exit=1
+            ;;
+        9.3* | 10* )
             if [[ $platform == linux ]]; then
                 warnning afc_tool is unsupport for linux,wait for commit
                 return
             fi
-            log Mount Filesystem
-            $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+            if [[ $major_ver == 10 ]]; then
+                case $minor_ver in
+                    [012] )
+                    local path="/mnt2/mobile/Library/Caches"
+                    ;;
+                    * )
+                    local path="/mnt2/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches"
+                    ;;
+                esac
+            else
+                local path="/mnt2/mobile/Library/Caches"
+            fi
             log Download files
-            $ssh -p $ssh_port root@127.0.0.1 "mv /mnt2/mobile/Library/Caches/com.apple.MobileGestalt.plist /mnt2/mobile/Media"
+            $ssh -p $ssh_port root@127.0.0.1 "mv $path/com.apple.MobileGestalt.plist /mnt2/mobile/Media"
             local message=$($ssh -p $ssh_port root@127.0.0.1 "ls /mnt2/mobile/Media/com.apple.MobileGestalt.plist")
             if [[ $message != "/mnt2/mobile/Media/com.apple.MobileGestalt.plist" ]]; then
                 error Download failed
@@ -1217,10 +1250,10 @@ device_hacktivate() {
                     pause Press enter to exit
                     return
                 else
-                    log "Patch files"
+                    log "Add key to files"
                     $afc activation com.apple.MobileGestalt.plist
                     if [[ ! -f "com.apple.MobileGestalt.plist.backup" ]]; then
-                        error Patch files failed
+                        error "Add key failed"
                         pause
                         return
                     fi
@@ -1228,26 +1261,47 @@ device_hacktivate() {
                     $afc upload com.apple.MobileGestalt.plist /
                 fi
             fi
-            log "Done,part1 has been completed,use ./sshrd32.sh --hac-part-2 to start part 2"
+            log "Done,part1 has been completed,use ./sshrd32.sh --bypass-part-2 to start part 2"
+            exit=1
             ;;
         * )
             warning This iOS version is unsupport
             pause Press enter to enter ssh menu
+            ssh_menu
             ;;
     esac
 }
 
 device_hacktivate_part2() {
-    ##part2
+    ##part2 ios9.3-ios10.3.4
+    log Get ios version
+    check_iosvers
+    cut_os_vers $device_vers
+    $ssh -p $ssh_port root@127.0.0.1 "umount /mnt1"
+    $ssh -p $ssh_port root@127.0.0.1 "umount /mnt2"
+    if [[ $major_ver == 10 ]]; then
+        case $minor_ver in
+            [012] )
+            local path="/mnt2/mobile/Library/Caches"
+            ;;
+            * )
+            local path="/mnt2/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches"
+            ;;
+        esac
+    else
+        local path="/mnt2/mobile/Library/Caches"
+    fi
     log Mount Filesystem
     $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
-    log Rename Setup.app
-    $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/Applications/Setup.app /mnt1/Applications/Setup.app.bak"
+    #log Rename Setup.app #ios10 cannot mv setup.app
+    #$ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/Applications/Setup.app /mnt1/Applications/Setup.app.bak"
     log Replace original files
-    $ssh -p $ssh_port root@127.0.0.1 "mv /mnt2/mobile/Library/Caches/com.apple.MobileGestalt.plist /mnt2/mobile/Library/Caches/com.apple.MobileGestalt.plist.bak"
-    $ssh -p $ssh_port root@127.0.0.1 "mv /mnt2/mobile/Media/com.apple.MobileGestalt.plist /mnt2/mobile/Library/Caches"
+    $ssh -p $ssh_port root@127.0.0.1 "mv $path/com.apple.MobileGestalt.plist $path/com.apple.MobileGestalt.plist.bak"
+    $ssh -p $ssh_port root@127.0.0.1 "mv /mnt2/mobile/Media/com.apple.MobileGestalt.plist $path"
     log Rebooting
     $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+    log Done
+    exit=1
 }
 
 device_bruteforce() {
@@ -1576,17 +1630,18 @@ clean() {
 }
 
 display_help() {
- print "Run ./sshrd32.sh use default version"
- print "Simplify Args"
- print "1. ./sshrd32.sh "ios ver/build ver"  use custom version,only support ios verion and ios build version"
- print "2. ./sshrd32.sh boot  boot ramdisk after make"
- print "3. ./sshrd32.sh ssh  connect ssh"
- print Args
- print "Add --version=“ramdisk build ver”/“ramdisk ver” use custom version,only support ios verion and ios build version"
- print "Add --device="iPhone/iPad/iPodx,x" custom device_type,without device check"
- print "Add --menu  directly access the menu"
- print "Add --make make ssh ramdisk only, without boot"
- print "Add --reboot reboot device in sshrd"
+    print "Run ./sshrd32.sh use default version"
+    print "Simplify Args"
+    print "1. ./sshrd32.sh "ios ver/build ver"  use custom version,only support ios verion and ios build version"
+    print "2. ./sshrd32.sh boot  boot ramdisk after make"
+    print "3. ./sshrd32.sh ssh  connect ssh"
+    print Args
+    print "Add --version=“ramdisk build ver”/“ramdisk ver” use custom version,only support ios verion and ios build version"
+    print "Add --device="iPhone/iPad/iPodx,x" custom device_type,without device check"
+    print "Add --menu  directly access the menu"
+    print "Add --make make ssh ramdisk only, without boot"
+    print "Add --reboot reboot device in sshrd"
+    print "Add --password bruteforce password(only support 4-digit password)"
 }
 
 function select_option() {
@@ -1672,7 +1727,7 @@ function select_opt {
 }
 
 function yesno() {
-    local msg="是否继续?"
+    local msg="Do you want to continue?"
     if [[ -n $1 ]]; then
         msg="$1"
     fi
@@ -1755,7 +1810,7 @@ for i in "$@"; do
             no_menu=1
             just_password=1
             ;;
-        --hacktivate | --hac )
+        --hacktivate | --hac | --bypass )
             no_menu=1
             just_hacktivate=1
             ;;
@@ -1767,11 +1822,13 @@ for i in "$@"; do
             display_help
             exit 1
             ;;
-        -hac )
-            just_hac=1
+         --hac-part-1 | --bypass-part-1 )
+            device_rd_build_custom=9.0.2
             no_menu=1
+            just_part2=1
             ;;
-         --hac-part-2 )
+         --hac-part-2 | --bypass-part-2 )
+            device_rd_build_custom=9.0.2
             no_menu=1
             just_part2=1
             ;;
