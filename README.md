@@ -15,19 +15,23 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - Add `--make` make ssh ramdisk only, without boot
 - Add `--reboot` reboot device in sshrd
 - Add `--password` bruteforce password(only support 4-digit password)
+- Add `--bypass` hacktivate device(support iOS7-9.2.X)
+- Add `--bypass-part-1` hacktivate device(support iOS9.3-10.3.4)
 ## Current Bugs
-- A6 device can’t pwn
 - ...
 ## Future
-- Will update Jailbreak,hacktivation and so on
+- Will update Jailbreak,and so on
 # History
-- commit 1 First commit
-- commit 2 Update readme
-- commit 3 rm some useless tools,add --device= ,--verion= arg,update readme
-- commit 4 Update readme again
-- commit 5 add simplify args,update readme
-- commit 6 fix sh
-- commit 7 update readme
-- commit 8 fix a5 pwn，fix some small problems，add patches
-- commit 9 add bruteforce password(only support 4-digit password),and fix some bugs 
-- commit 10 update readme
+- commit 1 initial commit
+- commit 2 First commit
+- commit 3 Update readme
+- commit 4 rm some useless tools,add --device= ,--verion= arg,update readme
+- commit 5 Update readme again
+- commit 6 add simplify args,update readme
+- commit 7 fix sh
+- commit 8 update readme
+- commit 9 fix a5 pwn，fix some small problems，add patches
+- commit 10 add bruteforce password(only support 4-digit password),and fix some bugs 
+- commit 11 update readme
+- commit 12 update hacktivate part,fix some bugs
+- commit 12 update readme
