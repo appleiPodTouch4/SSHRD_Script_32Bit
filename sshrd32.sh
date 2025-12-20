@@ -542,8 +542,7 @@ update() {
     local local_ver=$(git rev-parse --short HEAD)
     local commit_info=$(curl -s "https://api.github.com/repos/appleiPodTouch4/SSHRD_Script_32Bit/commits?per_page=1" | $jq -r '.[0]')
     local sha=$(echo "$commit_info" | $jq -r '.sha')
-    #local latest=${sha:0:7}
-    local latest=iiuh111
+    local latest=${sha:0:7}
     if [[ -z $local_ver || -z $latest ]]; then
         error Unable get version message,please check internet connection
         return
@@ -558,7 +557,8 @@ update() {
                 error Please install git first
                 return
             fi
-            git push
+            git fetch origin
+            git reset --hard origin/main
             if [[ $(git rev-parse --short HEAD) == $latest ]]; then
                 log Update successfully,run ./sshrd.sh again
             else
