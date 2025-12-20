@@ -62,15 +62,21 @@ input() {
 }
 
 pause() {
-    if [ -z "$@" ]; then
-        input "Press Enter/Return to continue (or press Ctrl+C to cancel)"
+    local arg="(or press Ctrl+C to cancel)"
+    if [ -z "$*" ]; then
+        input "Press Enter/Return to continue $arg"
     else
-        input "$@ (or press Ctrl+C to cancel)"
+        input "$* $arg"
     fi
     read -s
 }
 
 oscheck() {
+    if [[ -f ../resources/current_platform ]]; then
+        local local_platform_message=$(cat ../resources/current_platform 2>/dev/null)
+    else
+        local local_platform_message=""
+    fi
     arch_path=
     if [[ "$isoscheck" == "1" ]]; then
         platform_check=$(uname)
@@ -150,14 +156,66 @@ oscheck() {
             warning The Linux version is still being adapted, and some features have not yet been fixed. Should we continue using it?
             pause Press Enter to continue.
             check_sudo
-            install_depends
+            linux_part
             arch_path="linux/"
             linux_name=$(grep '^NAME=' /etc/os-release | cut -d'"' -f2)
             platform_message="${linux_name} ($platform_arch)"
             dir="../bin/linux"
         fi
     fi
+    if [[ $platform_message != $local_platform_message ]]; then
+        install_depends
+    fi
 
+}
+
+linux_part() {
+    if [[ -n $UBUNTU_CODENAME ]]; then
+        case $UBUNTU_CODENAME in
+            "jammy" | "kinetic"   ) ubuntu_ver=22;;
+            "lunar" | "mantic"    ) ubuntu_ver=23;;
+            "noble" | "oracular"  ) ubuntu_ver=24;;
+            "plucky" | "questing" ) ubuntu_ver=25;;
+        esac
+        if [[ -z $ubuntu_ver ]]; then
+            source /etc/upstream-release/lsb-release 2>/dev/null
+            ubuntu_ver="$(echo "$DISTRIB_RELEASE" | cut -c -2)"
+        fi
+        if [[ -z $ubuntu_ver ]]; then
+            ubuntu_ver="$(echo "$VERSION_ID" | cut -c -2)"
+        fi
+    elif [[ -e /etc/debian_version ]]; then
+        debian_ver=$(cat /etc/debian_version)
+        case $debian_ver in
+            *"sid" | "kali"* ) debian_ver="sid";;
+            * ) debian_ver="$(echo "$debian_ver" | cut -c -2)";;
+        esac
+    elif [[ $ID == "fedora" || $ID_LIKE == "fedora" || $ID == "nobara" ]]; then
+        fedora_ver=$VERSION_ID
+    fi
+    if [[ $ID == "arch" || $ID_LIKE == "arch" || $ID == "artix" ]]; then
+        distro="arch"
+    elif (( ubuntu_ver >= 22 )) || (( debian_ver >= 12 )) || [[ $debian_ver == "sid" ]]; then
+        distro="debian"
+    elif (( fedora_ver >= 40 )); then
+        distro="fedora"
+        if [[ $(command -v rpm-ostree) ]]; then
+            distro="fedora-atomic"
+        fi
+    elif [[ $ID == "opensuse-tumbleweed" ]]; then
+        distro="opensuse"
+    elif [[ $ID == "gentoo" || $ID_LIKE == "gentoo" || $ID == "pentoo" ]]; then
+        distro="gentoo"
+    elif [[ $ID == "void" ]]; then
+        distro="void"
+    elif [[ -n $ubuntu_ver || -n $debian_ver || -n $fedora_ver ]]; then
+        error "Your distro version ($platform_ver - $platform_arch) is not supported. See the repo README for supported OS versions/distros"
+    else
+        warning "Your distro ($platform_ver - $platform_arch) is not detected/supported. See the repo README for supported OS versions/distros"
+        print "* You may still continue, but you will need to install required packages and libraries manually as needed."
+        sleep 5
+        pause
+    fi
 }
 
 check_sudo() {
@@ -272,6 +330,75 @@ set_path() {
     sha1sum="$(command -v shasum) -a 1"
 }
 
+prepare_udev_rules() {
+    local owner="$1"
+    local group="$2"
+    echo "ACTION==\"add\", SUBSYSTEM==\"usb\", ATTR{idVendor}==\"05ac\", ATTR{idProduct}==\"122[27]|128[0-3]|1338\", OWNER=\"$owner\", GROUP=\"$group\", MODE=\"0660\" TAG+=\"uaccess\"" > 39-libirecovery.rules
+}
+
+install_depends() {
+    rm -f "../resources/current_platform"
+    touch "../resources/current_platform"
+    if [[ $platform == "linux" ]]; then
+        print "Install depends now"
+        print "* Enter your user password when prompted"
+        pause
+        prepare_udev_rules usbmux plugdev
+        if [[ -n $ubuntu_ver ]]; then
+            sudo add-apt-repository -y universe
+        fi
+        sudo apt update
+        sudo apt install -y \
+            aria2 \
+            ca-certificates \
+            curl \
+            git \
+            libimobiledevice6 \
+            libimobiledevice-utils \
+            libssl3 \
+            libzstd1 \
+            openssh-client \
+            patch \
+            python3 \
+            python3-pip \
+            sshfs \
+            unzip \
+            usbmuxd \
+            usbutils \
+            vim-common \
+            xxd \
+            zenity \
+            zip \
+            zlib1g
+        
+
+        pip3 install pyimg4 pylibfdt-iOS
+
+        if [[ $(command -v systemctl 2>/dev/null) ]]; then
+            sudo systemctl enable --now udev systemd-udevd usbmuxd 2>/dev/null
+        fi
+
+        echo "$platform_message" > "../resources/current_platform"
+
+        if [[ $platform == "linux" ]]; then
+            if [[ $(command -v systemctl) ]]; then
+                sudo systemctl enable --now systemd-udevd usbmuxd 2>/dev/null
+            fi
+            sudo cp 39-libirecovery.rules /etc/udev/rules.d/39-libirecovery.rules
+            sudo chown root:root /etc/udev/rules.d/39-libirecovery.rules
+            sudo chmod 0644 /etc/udev/rules.d/39-libirecovery.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger -s usb
+        fi
+
+        log "Install depends done! Please run the script again to proceed"
+
+        exit
+    else
+        echo "$platform_message" > "../resources/current_platform"
+    fi
+}
+
 set_ssh_config() {
     if [ -z "$1" ]; then
         cp ../resources/ssh_config .
@@ -374,38 +501,39 @@ device_info() {
         iPad3,* | iPhone5,* )
             device_proc=6;; # A6            
     esac
-            case $device_type in
-            iPad1,1  ) device_model="k48";;
-            iPad2,1  ) device_model="k93";;
-            iPad2,2  ) device_model="k94";;
-            iPad2,3  ) device_model="k95";;
-            iPad2,4  ) device_model="k93a";;
-            iPad2,5  ) device_model="p105";;
-            iPad2,6  ) device_model="p106";;
-            iPad2,7  ) device_model="p107";;
-            iPad3,1  ) device_model="j1";;
-            iPad3,2  ) device_model="j2";;
-            iPad3,3  ) device_model="j2a";;
-            iPad3,4  ) device_model="p101";;
-            iPad3,5  ) device_model="p102";;
-            iPad3,6  ) device_model="p103";;
-            iPhone1,1) device_model="m68";;
-            iPhone1,2) device_model="n82";;
-            iPhone2,1) device_model="n88";;
-            iPhone3,1) device_model="n90";;
-            iPhone3,2) device_model="n90b";;
-            iPhone3,3) device_model="n92";;
-            iPhone4,1) device_model="n94";;
-            iPhone5,1) device_model="n41";;
-            iPhone5,2) device_model="n42";;
-            iPhone5,3) device_model="n48";;
-            iPhone5,4) device_model="n49";;
-            iPod1,1 ) device_model="n45";;
-            iPod2,1 ) device_model="n72";;
-            iPod3,1 ) device_model="n18";;
-            iPod4,1 ) device_model="n81";;
-            iPod5,1 ) device_model="n78";;
-        esac
+    case $device_type in
+        iPad1,1  ) device_model="k48";;
+        iPad2,1  ) device_model="k93";;
+        iPad2,2  ) device_model="k94";;
+        iPad2,3  ) device_model="k95";;
+        iPad2,4  ) device_model="k93a";;
+        iPad2,5  ) device_model="p105";;
+        iPad2,6  ) device_model="p106";;
+        iPad2,7  ) device_model="p107";;
+        iPad3,1  ) device_model="j1";;
+        iPad3,2  ) device_model="j2";;
+        iPad3,3  ) device_model="j2a";;
+        iPad3,4  ) device_model="p101";;
+        iPad3,5  ) device_model="p102";;
+        iPad3,6  ) device_model="p103";;
+        iPhone1,1) device_model="m68";;
+        iPhone1,2) device_model="n82";;
+        iPhone2,1) device_model="n88";;
+        iPhone3,1) device_model="n90";;
+        iPhone3,2) device_model="n90b";;
+        iPhone3,3) device_model="n92";;
+        iPhone4,1) device_model="n94";;
+        iPhone5,1) device_model="n41";;
+        iPhone5,2) device_model="n42";;
+        iPhone5,3) device_model="n48";;
+        iPhone5,4) device_model="n49";;
+        iPod1,1 ) device_model="n45";;
+        iPod2,1 ) device_model="n72";;
+        iPod3,1 ) device_model="n18";;
+        iPod4,1 ) device_model="n81";;
+        iPod5,1 ) device_model="n78";;
+    esac
+    device_ecid=$($idevicerestore -l 2>/dev/null | grep -i "ECID" | awk '{print $3}')
     
 }
 
@@ -506,6 +634,9 @@ ramdisk() {
     local mode="$1"
     local rec=2
     all_flash="Firmware/all_flash/all_flash.${device_model}ap.production"
+    if [[ no_ramdisk == 1 ]]; then
+        return
+    fi
     if [[ $1 == "setnvram" ]]; then
         rec=$2
     fi
@@ -810,6 +941,8 @@ ramdisk() {
             device_hacktivate_part2
         elif [[ $just_password == 1 ]]; then
             device_bruteforce
+        elif [[ $just_unblock_lock == 1 ]]; then
+            device_unblock_lock
         fi
     fi
 }
@@ -863,6 +996,7 @@ ssh_menu() {
     tip  "*** SSHRD_Script_32Bit ***"
     tip  "- $platform_message -"
     tip  "- Script by MrY0000 -"
+    tip  "- Thanks LuckZGD Setup.app -"
     tip  "- Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -"
     input "Select option:"
     options+=("SSH Connection")
@@ -1128,6 +1262,76 @@ jailbreak_sshrd() {
     exit=1
 }
 
+device_raw_dump() {
+    device_pwn
+    if [[ $device_proc == 4 && $device_pwnrec != 1 ]]; then
+        patch_ibss
+        log "Sending iBSS..."
+        $irecovery -f pwnediBSS.dfu
+    fi
+    sleep 2
+    patch_ibec
+    log "Sending iBEC..."
+    $irecovery -f pwnediBEC.dfu
+    if [[ $device_pwnrec == 1 ]]; then
+        $irecovery -c "go"
+    fi
+    sleep 3
+    checkmode rec
+    log "Dumping raw dump now"
+    (echo -e "/send ../resources/payload\ngo blobs\n/exit") | $irecovery2 -s
+    $irecovery2 -g dump.raw
+    log "Rebooting device"
+    $irecovery -n
+    local raw
+    local err
+    device_shsh_dump $1
+    err=$?
+    mkdir ../saved/raws 2>/dev/null
+    if [[ $1 == "dump" ]]; then
+        raw="../saved/raws/rawdump_${device_ecid}-${device_type}_$(date +%Y-%m-%d-%H%M)_${shsh_onboard_iboot}.raw"
+    else
+        raw="../saved/raws/rawdump_${device_ecid}-${device_type}-${device_target_vers}-${device_target_build}_$(date +%Y-%m-%d-%H%M)_${shsh_onboard_iboot}.raw"
+    fi
+    if [[ $1 == "dump" ]] || [[ $err != 0 && -s dump.raw ]]; then
+        mv dump.raw $raw
+        log "Raw dump saved at: $raw"
+        return
+    fi
+}
+
+device_shsh_dump() {
+    local shsh="../saved/shsh/${device_ecid}-${device_type}_$(date +%Y-%m-%d-%H%M).shsh"
+    mkdir ../saved/shsh 2>/dev/null
+    shsh="../saved/shsh/${device_ecid}-${device_type}-${device_target_vers}-${device_target_build}.shsh"
+    # remove ibob for powdersn0w/dra downgraded devices. fixes unknown magic 69626f62
+    local blob=$(xxd -p dump.raw | tr -d '\n')
+    local bobi="626f6269"
+    local blli="626c6c69"
+    if [[ $blob == *"$bobi"* ]]; then
+        log "Detected \"ibob\". Fixing... (This happens on DRA/powdersn0w downgraded devices)"
+        rm -f dump.raw
+        printf "%s" "${blob%"$bobi"*}${blli}${blob##*"$blli"}" | xxd -r -p > dump.raw
+    fi
+    shsh_onboard_iboot="$(cat dump.raw | strings | grep iBoot | head -1)"
+    log "Raw dump iBoot version: $shsh_onboard_iboot"
+    if [[ $1 == "dump" ]]; then
+        return
+    fi
+    log "Converting raw dump to SHSH blob"
+    "$dir/ticket" dump.raw dump.shsh "$ipsw_path.ipsw" -z
+    if [[ $? != 0 ]]; then
+        warning "Saved SHSH blobs might be invalid. Did you select the correct IPSW?"
+        print "* If you selected the correct IPSW and the error is not APTicket and/or LLB, the blob is most likely usable."
+    fi
+    if [[ ! -s dump.shsh ]]; then
+        warning "Converting onboard SHSH blobs failed."
+        return 1
+    fi
+    mv dump.shsh $shsh
+    log "Successfully saved $device_target_vers blobs: $shsh"
+}
+
 device_hacktivate() {
     local ver
     local build
@@ -1169,7 +1373,7 @@ device_hacktivate() {
             log Rename orgin file
             $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/usr/libexec/lockdownd /mnt1/usr/libexec/lockdownd.bak"
             log upload new file
-            $scp -P $ssh_port $script_dir/bin/Others/lockdownd root@127.0.0.1:/mnt1/usr/libexec
+            $scp -P $ssh_port ../resources/lockdownd root@127.0.0.1:/mnt1/usr/libexec
             log Set permissions
             $ssh -p $ssh_port root@127.0.0.1 "chmod 755 /mnt1/usr/libexec/lockdownd"
             yesno Do you want to rename Setup.app?
@@ -1316,6 +1520,16 @@ device_bruteforce() {
     ssh_menu
 }
 
+device_unblock_lock() {
+    log Mount Filesystem
+    $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+    log Del some files
+    $ssh -p $ssh_port root@127.0.0.1 "rm -rf /mnt2/mobile/Library/Preferences/com.apple.springboard.plist"
+    $ssh -p $ssh_port root@127.0.0.1 "rm -rf /mnt2/mobile/Library/SpringBoard/LockoutStateJournal.plist"
+    log Rebooting
+    $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+    exit=1
+}
 
 ###tools###
 
@@ -1360,6 +1574,64 @@ cut_os_vers() {
             device_nano_ver_wtd=$(echo "$device_nano_ver" | cut -c 2)
         fi
     fi
+}
+
+get_ipsw_info() {
+    local ipsw_file
+    local manifest_file="BuildManifest.plist"
+    if [[ $1 == "base" ]]; then
+        ipsw_file="$ipsw_base_path"
+    else
+        if [[ $1 == "target" ]]; then
+            ipsw_file="$2"
+        else
+            ipsw_file="$ipsw_path"
+        fi
+    fi    
+    if [ -z "$ipsw_file" ]; then
+        warning Unable to get ipsw path
+        exit
+    fi
+    unzip -p "$ipsw_file" "BuildManifest.plist" > "$manifest_file" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        error "Unable extract files from this ipsw"
+        return 1
+    fi
+    if [[ $platform == "macos" ]]; then
+        device_type_ipsw_temp=$(plutil -extract "SupportedProductTypes" xml1 -o - "$manifest_file" | sed -n 's/<string>\(.*\)<\/string>/\1/p')
+        device_vers=$(plutil -extract "ProductVersion" xml1 -o - "$manifest_file" | sed -n 's/<string>\(.*\)<\/string>/\1/p')
+        device_build=$(plutil -extract "ProductBuildVersion" xml1 -o - "$manifest_file" | sed -n 's/<string>\(.*\)<\/string>/\1/p')
+        device_type_ipsw=$(echo "$device_type_ipsw_temp" | tr -d '\n\r' | xargs)
+    else
+        device_type_ipsw_temp=$(cat $manifest_file | grep -i SupportedProductTypes -A 1 | grep -oPm1 "(?<=<string>)[^<]+")
+        device_vers=$(cat $manifest_file | grep -i ProductVersion -A 1 | grep -oPm1 "(?<=<string>)[^<]+")
+        device_build=$(cat $manifest_file | grep -i ProductBuildVersion -A 1 | grep -oPm1 "(?<=<string>)[^<]+")
+        device_type_ipsw=$(echo "$device_type_ipsw_temp" | tr -d '\n\r' | xargs)
+    fi
+    if [[ $1 == "base" ]]; then
+        device_type_ipswbase="$device_type_ipsw"
+        device_base_vers="$device_vers"
+        device_base_build="$device_build"
+        if [[ "$device_type" != "$device_type_ipswbase" ]]; then
+            ipsw_base_select_wrong=1
+            return 1
+        else
+            ipsw_base_select_wrong=0
+        fi
+    else
+        device_type_ipsw="$device_type_ipsw"
+        device_target_vers="$device_vers"
+        device_target_build="$device_build"
+        if [[ "$device_type" != "$device_type_ipsw" ]]; then
+            ipsw_select_wrong=1
+            return 1
+        else
+            ipsw_select_wrong=0
+        fi
+    fi
+    
+    rm -f "$manifest_file"
+    return 0
 }
 
 get_firmware_info() {
@@ -1454,7 +1726,7 @@ device_iproxy() {
 
 device_s5l8900xall() {
     local wtf_sha="cb96954185a91712c47f20adb519db45a318c30f"
-    local wtf_saved="../saved/WTF.s5l8900xall.RELEASE.dfu"
+    local wtf_saved="../saved/patches/WTF.s5l8900xall.RELEASE.dfu"
     local wtf_patched="$wtf_saved.patched"
     local wtf_patch="../resources/patch/WTF.s5l8900xall.RELEASE.patch"
     local wtf_sha_local="$($sha1sum "$wtf_saved" 2>/dev/null | awk '{print $1}')"
@@ -1489,7 +1761,7 @@ device_s5l8900xall() {
 
 device_fw_key_check() {
     # check and download keys for device_target_build, then set the variable device_fw_key (or device_fw_key_base)
-    #remove download part , replace use unzip
+    #remove download part,replace use unzip
     local key
     local build="$device_target_build"
     if [[ $1 == "base" ]]; then
@@ -1542,6 +1814,56 @@ patch_ibss() {
     log "Pwned iBSS saved at: saved/$device_type/pwnediBSS"
     log "Pwned iBSS img3 saved at: saved/$device_type/pwnediBSS.dfu"
 }
+
+patch_ibec() {
+    # creates file pwnediBEC to be sent to device for blob dumping
+    local build_id
+    if [[ ! -f ../saved/$device_type/pwnediBEC.dfu ]]; then
+        case $device_type in
+            iPad1,1 | iPod3,1 )
+                build_id="9B206";;
+            iPhone2,1 | iPhone3,[123] | iPod4,1 | iPad3,1 )
+                build_id="10A403";;
+            iPad2,[367] | iPad3,[25] )
+                build_id="12H321";;
+            iPhone5,3 )
+                build_id="11B511";;
+            iPhone5,4 )
+                build_id="11B651";;
+            * )
+                build_id="10B329";;
+        esac
+        if [[ -n $device_rd_build ]]; then
+            build_id="$device_rd_build"
+        fi
+        download_comp $build_id iBEC
+        device_fw_key_check temp $build_id
+        local name="iBEC"
+        local iv=$(echo $device_fw_key_temp | $jq -j '.keys[] | select(.image == "iBEC") | .iv')
+        local key=$(echo $device_fw_key_temp | $jq -j '.keys[] | select(.image == "iBEC") | .key')
+        local address="0x80000000"
+        if [[ $device_proc == 4 ]]; then
+            address="0x40000000"
+        fi
+        mv iBEC $name.orig
+        log "Decrypting iBEC..."
+        "$dir/xpwntool" $name.orig $name.dec -iv $iv -k $key
+        log "Patching iBEC..."
+        if [[ $device_proc == 4 || -n $device_rd_build || $device_type == "iPad3,1" ]]; then
+            "$dir/iBoot32Patcher" $name.dec $name.patched --rsa --ticket -b "rd=md0 -v amfi=0xff cs_enforcement_disable=1" -c "go" $address
+        else
+            $bspatch $name.dec $name.patched "../resources/patch/$download_targetfile.patch"
+        fi
+        "$dir/xpwntool" $name.patched pwnediBEC.dfu -t $name.orig
+        rm $name.dec $name.orig $name.patched
+        cp pwnediBEC.dfu ../saved/$device_type/
+        log "Pwned iBEC img3 saved at: saved/$device_type/pwnediBEC.dfu"
+    else
+        log Found exist Pwned iBEC
+        cp ../saved/$device_type/pwnediBEC.dfu .
+    fi
+}
+
 
 download_comp() {
     # usage: download_comp [build_id] [comp]
@@ -1623,6 +1945,7 @@ clean() {
     kill $httpserver_pid $iproxy_pid $anisette_pid $sshfs_pid 2>/dev/null
     popd &>/dev/null
     rm -rf "$(dirname "$0")/tmp$$/"* "$(dirname "$0")/iP"*/ "$(dirname "$0")/tmp$$/" 2>/dev/null
+    rm -rf $(dirname "$0")/tmp*
     if [[ $platform == "macos" && $(ls "$(dirname "$0")" | grep -v tmp$$ | grep -c tmp) == 0 &&
           $no_finder != 1 ]]; then
         killall -CONT AMPDevicesAgent AMPDeviceDiscoveryAgent MobileDeviceUpdater
@@ -1630,6 +1953,10 @@ clean() {
 }
 
 display_help() {
+    tip  "*** SSHRD_Script_32Bit ***"
+    tip  "- Script by MrY0000 -"
+    tip  "- Thanks LuckZGD Setup.app -"
+    tip  "- Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -"
     print "Run ./sshrd32.sh use default version"
     print "Simplify Args"
     print "1. ./sshrd32.sh "ios ver/build ver"  use custom version,only support ios verion and ios build version"
@@ -1832,8 +2159,13 @@ for i in "$@"; do
             no_menu=1
             just_part2=1
             ;;
+        --unblock-lock )
+            no_menu=1
+            just_unblock_lock=1
+            ;;
         --reboot )
             device_iproxy
+            log Rebooting
             $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
             exit 1
             ;;
@@ -1858,8 +2190,42 @@ for i in "$@"; do
             $ssh -p $ssh_port root@127.0.0.1
             exit 1
             ;;
+        --dump-blobs | --dump-raws )
+            log "[*] Waiting for the device to enter DFU mode"
+            checkmode DFUall
+            log "Select iPSW(Please select right ipsw,if you don't know ios version,use ./sshrd32.sh --get-ios-ver)"
+            ipsw_try123=0
+            while true; do
+                ipsw_path1="$($zenity --file-selection --multiple --file-filter='IPSW | *.ipsw' --title="Select IPSW file(s)")"
+                ((ipsw_try123++))
+                if [[ -n "$ipsw_path1" ]]; then
+                    break
+                fi
+                if [[ $ipsw_try123 == 10 ]]; then
+                    error "Unable to select ipsw, please run the script again"
+                    exit 1
+                fi
+            done
+            get_ipsw_info target $ipsw_path1
+            ipsw_path="${ipsw_path1%.ipsw}"
+            device_info
+            device_pwn
+            if [[ $i == "--dump-raws" ]]; then
+                device_raw_dump dump
+            else
+                device_raw_dump
+            fi
+            exit
+            ;;
+        "" )
+            :
+            ;;
+        * )
+            warning Unknown command,use"./sshrd32.sh -h" to use right command
+            exit
+            ;;
     esac
 done
 main
-#debug_func
+pause "Press Enter/Return to exit this script" noctrlc
 popd >/dev/null
