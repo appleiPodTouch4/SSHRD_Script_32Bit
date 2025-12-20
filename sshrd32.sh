@@ -537,6 +537,40 @@ device_info() {
     
 }
 
+update() {
+    log Checking update
+    local local_ver=$(git rev-parse --short HEAD)
+    local commit_info=$(curl -s "https://api.github.com/repos/appleiPodTouch4/SSHRD_Script_32Bit/commits?per_page=1" | $jq -r '.[0]')
+    local sha=$(echo "$commit_info" | $jq -r '.sha')
+    #local latest=${sha:0:7}
+    local latest=iiuh111
+    if [[ -z $local_ver || -z $latest ]]; then
+        error Unable get version message,please check internet connection
+        return
+    fi
+    if [[ $local_ver == $latest ]]; then
+        log It is already the latest commit,no upgrade required
+    else
+        yesno "Newest commit is $latest. Do you want to update?" 1
+        if [[ $? == 1 ]]; then
+            cd ../
+            if [[ -z $(command -v git) ]]; then
+                error Please install git first
+                return
+            fi
+            git push
+            if [[ $(git rev-parse --short HEAD) == $latest ]]; then
+                log Update successfully,run ./sshrd.sh again
+            else
+                error Update failed,please check internet connection
+                return
+            fi
+        else
+            return
+        fi
+    fi
+}
+
 ######pwn######
 device_pwn() {
     local a5
@@ -1963,12 +1997,16 @@ display_help() {
     print "2. ./sshrd32.sh boot  boot ramdisk after make"
     print "3. ./sshrd32.sh ssh  connect ssh"
     print Args
-    print "Add --version=“ramdisk build ver”/“ramdisk ver” use custom version,only support ios verion and ios build version"
-    print "Add --device="iPhone/iPad/iPodx,x" custom device_type,without device check"
-    print "Add --menu  directly access the menu"
-    print "Add --make make ssh ramdisk only, without boot"
-    print "Add --reboot reboot device in sshrd"
-    print "Add --password bruteforce password(only support 4-digit password)"
+    print "./sshrd32.sh --version=“ramdisk build ver”/“ramdisk ver” use custom version,only support ios verion and ios build version"
+    print "./sshrd32.sh --device="iPhone/iPad/iPodx,x" custom device_type,without device check"
+    print "./sshrd32.sh --menu  directly access the menu"
+    print "./sshrd32.sh --make make ssh ramdisk only, without boot"
+    print "./sshrd32.sh --reboot reboot device in sshrd"
+    print "./sshrd32.sh --password bruteforce password(only support 4-digit password)"
+    print "./sshrd32.sh --bypass hacktivate device(support iOS7-9.2.X)"
+    print "./sshrd32.sh --bypass-part-1 hacktivate device(support iOS9.3-10.3.4)"
+    print "./sshrd32.sh --unblock-lock unblock screen lock limit"
+    print "./sshrd32.sh --update update to newest commit"
 }
 
 function select_option() {
@@ -2215,6 +2253,10 @@ for i in "$@"; do
             else
                 device_raw_dump
             fi
+            exit
+            ;;
+        --update )
+            update
             exit
             ;;
         "" )

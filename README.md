@@ -39,3 +39,4 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - commit 13 update readme
 - commit 14 add unblock screen lock limit,fix some bugs
 - commit 15 add jailbreak device part,update readme
+- commit 16 try to add update
