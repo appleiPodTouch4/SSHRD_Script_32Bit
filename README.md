@@ -14,14 +14,15 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - Add `--menu”` directly access the menu
 - Add `--make` make ssh ramdisk only, without boot
 - Add `--reboot` reboot device in sshrd
+- Add `--jb` Jailbreak device(support iOS4-iOS9.3.4) only Untethered
 - Add `--password` bruteforce password(only support 4-digit password)
 - Add `--bypass` hacktivate device(support iOS7-9.2.X)
 - Add `--bypass-part-1` hacktivate device(support iOS9.3-10.3.4)
 - Add `--unblock-lock` unblock screen lock limit
 ## Current Bugs
-- ...
+- Linux is unsupport(have some reall bugs)
 ## Future
-- Will update Jailbreak,and so on
+- ...
 # History
 - commit 1 initial commit
 - commit 2 First commit
@@ -37,3 +38,4 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - commit 12 update hacktivate part,fix some bugs
 - commit 13 update readme
 - commit 14 add unblock screen lock limit,fix some bugs
+- commit 15 add jailbreak device part,update readme
