@@ -161,6 +161,10 @@ oscheck() {
             linux_name=$(grep '^NAME=' /etc/os-release | cut -d'"' -f2)
             platform_message="${linux_name} ($platform_arch)"
             dir="../bin/linux"
+            if [[ $linux_name != Ubuntu ]]; then
+                error Support ubuntu only,change your distro to ubuntu
+                exit
+            fi
         fi
     fi
     if [[ $platform_message != $local_platform_message ]]; then
@@ -665,6 +669,7 @@ ramdisk() {
     local ramdisk_path
     local version
     local build_id
+    local local_build_id
     local mode="$1"
     local rec=2
     all_flash="Firmware/all_flash/all_flash.${device_model}ap.production"
@@ -728,8 +733,26 @@ ramdisk() {
     build_id=$device_target_build
     device_fw_key_check
     ipsw_get_url $build_id $version
-    ramdisk_path="../saved/$device_type/ramdisk_$build_id"
+    if [[ $arg_l != 1 ]]; then
+        ramdisk_path="../saved/$device_type/ramdisk_$build_id"
+    else
+        ramdisk_path="../current_ramdisk"
+        if [[ -f ../current_ramdisk/build_id ]]; then
+            local_build_id=$(cat ../current_ramdisk/build_id)
+            if [[ $local_build_id != $build_id ]]; then
+                log Clean old ramdsk
+                rm -f ../current_ramdisk
+            fi
+    
+        fi
+    fi
+    log $ramdisk_path
+    pause
     mkdir $ramdisk_path 2>/dev/null
+    if [[ $arg_l == 1 ]]; then
+        touch ../current_ramdisk/build_id
+        echo "$build_id" > "../current_ramdisk/build_id"
+    fi
     for getcomp in "${comps[@]}"; do
         name=$(echo $device_fw_key | $jq -j '.keys[] | select(.image == "'$getcomp'") | .filename')
         iv=$(echo $device_fw_key | $jq -j '.keys[] | select(.image == "'$getcomp'") | .iv')
@@ -980,6 +1003,7 @@ ramdisk() {
         fi
     fi
 }
+
 
 lastest_enter() {
     local options=()
@@ -1565,6 +1589,7 @@ device_unblock_lock() {
     exit=1
 }
 
+
 ###tools###
 
 cut_os_vers() {
@@ -1683,6 +1708,7 @@ get_firmware_info() {
     JSON_FILE=tmp.json
     if [[ ! -f "tmp.json" ]]; then
         error Unable get json,please check internat connection
+        exit
     fi
     if [[ $1 == "ver" ]]; then
         version=$2
@@ -2207,21 +2233,6 @@ for i in "$@"; do
             $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
             exit 1
             ;;
-        #legacy part,from SSHRD
-        [0-9]*.[0-9]* )
-            arg_l=1
-            device_rd_build_custom="$i"
-            device_argmode=none
-            ;;
-        [0-9]*[A-Za-z][0-9]* )
-            arg_l=1
-            device_rd_build_custom="$i"
-            device_argmode=none
-            ;;
-        --boot | boot )
-            just_boot=1
-            nomenu=1
-            ;;
         --ssh | ssh )
             device_iproxy
             ssh_message
@@ -2259,6 +2270,39 @@ for i in "$@"; do
             update
             exit
             ;;
+        #legacy part,from SSHRD
+        [0-9]*.[0-9]* )
+            arg_l=1
+            device_rd_build_custom="$i"
+            device_argmode=none
+            ;;
+        [0-9]*[A-Za-z][0-9]* )
+            arg_l=1
+            device_rd_build_custom="$i"
+            device_argmode=none
+            ;;
+        --boot | boot )
+            if [[ $i == "--boot" ]]; then
+                arg_l=0
+            else
+                arg_l=1
+            fi
+            just_boot=1
+            nomenu=1
+            ;;
+        clean )
+            if [[ -d ../current_ramdisk ]]; then
+                rm -f ../current_ramdisk
+                if [[ -d ../current_ramdisk ]]; then
+                    error Unable to delete files
+                else
+                    log Delect files successfully
+                fi
+            else
+                error "Cannot find current ramdisk,use ./sshrd32.sh [ios version/ios build version] to make ramdisk"
+            fi
+            exit
+            ;;
         "" )
             :
             ;;
@@ -2269,5 +2313,7 @@ for i in "$@"; do
     esac
 done
 main
-pause "Press Enter/Return to exit this script" noctrlc
+if [[ $arg_l != 1 ]]; then
+    pause "Press Enter/Return to exit this script" noctrlc
+fi
 popd >/dev/null

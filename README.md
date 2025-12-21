@@ -19,6 +19,7 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - Add `--bypass` hacktivate device(support iOS7-9.2.X)
 - Add `--bypass-part-1` hacktivate device(support iOS9.3-10.3.4)
 - Add `--unblock-lock` unblock screen lock limit
+- Add `--update` update to newest commit
 ## Current Bugs
 - Linux is unsupport(have some reall bugs)
 ## Future
