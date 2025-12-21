@@ -43,3 +43,4 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - commit 16 try to add update
 - commit 17 fix update
 - commit 18 update readme
+- commit 19 fix legacy part

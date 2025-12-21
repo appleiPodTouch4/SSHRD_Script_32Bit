@@ -5,3 +5,4 @@
 commit.sh
 sshrdtest.sh
 /resources/current_platform
+/current_ramdisk
