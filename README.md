@@ -1,5 +1,5 @@
 # SSHRD_Script_32Bit
-Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/) 
+Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/) Add some custom functions
 
 ## Usage
 - Clone this repository: `git clone https://github.com/appleiPodTouch4/SSHRD_Script_32Bit --recursive`
@@ -46,4 +46,5 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/)
 - commit 19 fix legacy part
 - commit 20 fix legacy part
 - commit 21 update readme
-- commit 22 fix bruteforce and some bugs        
+- commit 22 fix bruteforce and some bugs
+- commit 23 update readme

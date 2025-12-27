@@ -16,19 +16,6 @@ mount -o rw,union,update /
 echo "RAMDISK SETUP: SETTING AUTOBOOT" > /dev/console
 nvram auto-boot=1
 
-echo  "██╗  ██╗ ██╗ █████╗  ██████╗ ██╗    ██╗ ███████╗" > /dev/console
-echo  "╚██╗██╔╝███║██╔══██╗██╔═══██╗██║    ██║ ╚══███╔╝" > /dev/console
-echo  " ╚███╔╝ ╚██║███████║██║   ██║██║ █╗ ██║   ███╔╝ " > /dev/console
-echo  " ██╔██╗  ██║██╔══██║██║   ██║██║███╗██║  ███╔╝  " > /dev/console
-echo  "██╔╝ ██╗ ██║██║  ██║╚██████╔╝╚███╔███╔╝ ███████╗" > /dev/console
-echo  "╚═╝  ╚═╝ ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚══╝╚══╝  ╚══════╝" > /dev/console
-echo  "███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗   " > /dev/console
-echo  "██╔════╝╚══██╔══╝██║   ██║██╔══██╗██║██╔═══██╗  " > /dev/console
-echo  "███████╗   ██║   ██║   ██║██║  ██║██║██║   ██║  " > /dev/console
-echo  "╚════██║   ██║   ██║   ██║██║  ██║██║██║   ██║  " > /dev/console
-echo  "███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝  " > /dev/console
-echo  "╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝   " > /dev/console  
-
 # Start SSHD
 echo "RAMDISK SETUP: STARTING SSHD" > /dev/console
 /sbin/sshd

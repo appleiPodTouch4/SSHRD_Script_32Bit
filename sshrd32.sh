@@ -64,15 +64,19 @@ input() {
 pause() {
     local i
     local arg="(or press Ctrl+C to cancel)"
-    for i in $*; do
-        if [[ $i == nictrlc ]]; then
+    local filtered_args=""
+    for i in "$@"; do
+        if [[ $i == noctrlc ]]; then
             local arg=""
+        else
+            filtered_args="$filtered_args $i"
         fi
     done
-    if [ -z "$*" ]; then
+    filtered_args=$(echo "$filtered_args" | sed 's/^ //')
+    if [ -z "$filtered_args" ]; then
         input "Press Enter/Return to continue $arg"
     else
-        input "$* $arg"
+        input "$filtered_args $arg"
     fi
     read -s
 }
