@@ -62,7 +62,13 @@ input() {
 }
 
 pause() {
+    local i
     local arg="(or press Ctrl+C to cancel)"
+    for i in $*; do
+        if [[ $i == nictrlc ]]; then
+            local arg=""
+        fi
+    done
     if [ -z "$*" ]; then
         input "Press Enter/Return to continue $arg"
     else
@@ -427,52 +433,88 @@ set_ssh_config() {
 
 
 checkmode() {
-    if [ "$1" = "DFU" ]; then
-        if ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (DFU Mode)' >> /dev/null); then
-            if [[ "$2" != "none" ]]; then
-                log "[*] Waiting for the device to enter DFU mode"
+    if [[ $2 != irec ]]; then
+        if [ "$1" = "DFU" ]; then
+            if ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (DFU Mode)' >> /dev/null); then
+                if [[ "$2" != "none" ]]; then
+                    log "[*] Waiting for the device to enter DFU mode"
+                fi
             fi
+            while ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (DFU Mode)' >> /dev/null); do
+                sleep 1
+            done
+        elif [ "$1" = "rec" ]; then
+            if ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (Recovery Mode)' >> /dev/null); then
+                if [[ "$2" != "none" ]]; then
+                    log "[*] Waiting for the device to enter Recovery mode"
+                fi
+            fi
+            while ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (Recovery Mode)' >> /dev/null); do
+                sleep 1
+            done
+        elif [ "$1" = "nor" ]; then
+            if ! (system_profiler SPUSBDataType 2> /dev/null | grep -E ' (iPod|iPhone|iPad)' >> /dev/null); then
+                if [[ "$2" != "none" ]]; then
+                    log "[*] Waiting for the device to enter Normal mode"
+                fi
+            fi
+            while ! (system_profiler SPUSBDataType 2> /dev/null | grep -E ' (iPod|iPhone|iPad)' >> /dev/null); do
+                sleep 1
+            done
+        elif [ "$1" = "DFUreal" ]; then
+            if ! (system_profiler SPUSBDataType 2> /dev/null | grep ' USB DFU Device' >> /dev/null); then
+                if [[ "$2" != "none" ]]; then
+                    log "[*] Waiting for the device to enter DFU mode"
+                fi
+            fi
+            while ! (system_profiler SPUSBDataType 2> /dev/null | grep ' USB DFU Device' >> /dev/null); do
+                sleep 1
+            done
+        elif [ "$1" = "DFUall" ]; then
+            log "[*] Waiting for the device to enter DFU mode"
+            while true;do
+                if (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (DFU Mode)' >> /dev/null); then
+                    break
+                fi
+                sleep 1
+                if (system_profiler SPUSBDataType 2> /dev/null | grep ' USB DFU Device' >> /dev/null); then
+                    break
+                fi
+            done
         fi
-        while ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (DFU Mode)' >> /dev/null); do
-            sleep 1
-        done
-    elif [ "$1" = "rec" ]; then
-        if ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (Recovery Mode)' >> /dev/null); then
-            if [[ "$2" != "none" ]]; then
-                log "[*] Waiting for the device to enter Recovery mode"
+    else
+        local mode
+        case $1 in
+            nor )
+            log "[*] Waiting for the device to enter Normal mode"
+            while true; do
+                device_ver=$($ideviceinfo -s 2>/dev/null | grep "ProductVersion:" | cut -d' ' -f2)
+                if [[ $device_ver =~ ^[0-9]+\.[0-9]+(\.[0-9]+)*$ ]]; then
+                    break
+                fi
+                sleep 1
+            done
+            ;;
+            rec | DFU | DFUall )
+            if [[ $1 == rec ]]; then
+                local mode="Recovery"
+            elif [[ $1 == DFU ]]; then
+                local mode="DFU"
+            elif [[ $1 == DFUall ]]; then
+                local mode="DFU"
             fi
-        fi
-        while ! (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (Recovery Mode)' >> /dev/null); do
-            sleep 1
-        done
-    elif [ "$1" = "nor" ]; then
-        if ! (system_profiler SPUSBDataType 2> /dev/null | grep -E ' (iPod|iPhone|iPad)' >> /dev/null); then
-            if [[ "$2" != "none" ]]; then
-                log "[*] Waiting for the device to enter Normal mode"
-            fi
-        fi
-        while ! (system_profiler SPUSBDataType 2> /dev/null | grep -E ' (iPod|iPhone|iPad)' >> /dev/null); do
-            sleep 1
-        done
-    elif [ "$1" = "DFUreal" ]; then
-        if ! (system_profiler SPUSBDataType 2> /dev/null | grep ' USB DFU Device' >> /dev/null); then
-            if [[ "$2" != "none" ]]; then
-                log "[*] Waiting for the device to enter DFU mode"
-            fi
-        fi
-        while ! (system_profiler SPUSBDataType 2> /dev/null | grep ' USB DFU Device' >> /dev/null); do
-            sleep 1
-        done
-    elif [ "$1" = "DFUall" ]; then
-        while true;do
-            if (system_profiler SPUSBDataType 2> /dev/null | grep ' Apple Mobile Device (DFU Mode)' >> /dev/null); then
-                break
-            fi
-            sleep 1
-            if (system_profiler SPUSBDataType 2> /dev/null | grep ' USB DFU Device' >> /dev/null); then
-                break
-            fi
-        done
+            log "[*] Waiting for the device to enter $mode mode"
+            while true; do
+                device_mode="$($irecovery -q 2>/dev/null | grep -w "MODE" | cut -c 7-)"
+                if [[ $device_mode == "$mode" ]]; then
+                    break
+                elif [[ $device_mode == "WTF" ]]; then
+                    break
+                fi
+                sleep 1
+            done
+            ;;
+        esac
     fi
 }
 
@@ -536,6 +578,7 @@ device_info() {
         iPod3,1 ) device_model="n18";;
         iPod4,1 ) device_model="n81";;
         iPod5,1 ) device_model="n78";;
+        * ) error "Unsupport for 64Bit device,try to use(https://github.com/verygenericname/SSHRD_Script)"; exit;;
     esac
     device_ecid=$($idevicerestore -l 2>/dev/null | grep -i "ECID" | awk '{print $3}')
     
@@ -579,23 +622,38 @@ update() {
 device_pwn() {
     local a5
     log Getting device info and pwning... this may take a second
+    local device_pwnd="$($irecovery -q | grep "PWND" | cut -c 7-)"
     if [[ -z $device_pwnd ]]; then
         case $device_proc in
             1 ) device_s5l8900xall ;;
             4 ) 
             case $device_type in
                 iPad1,1 | iPhone3,* | iPod[24],1 )
-                log Pwn:primepwn
-                $primepwn
+                if [[ $platform == linux ]]; then
+                    $ipwnder -p
+                else
+                    $primepwn
+                fi
                 ;;
                 * )
                 log Pwn:ipwnder
-                $ipwnder
+                if [[ $platform == macos ]]; then
+                    $ipwnder
+                else
+                    $ipwnder -p
+                fi
                 ;;
             esac
              ;;
             5 ) a5=1 ;;
-            6 ) $ipwnder ;;
+            6 )
+            log Pwn:ipwnder
+            if [[ $platform == macos ]]; then
+                $ipwnder
+            else
+                $ipwnder -p
+            fi
+            ;;
         esac
     fi
     if [[ $device_proc == 5 ]]; then
@@ -626,6 +684,7 @@ device_pwn() {
             fi
         else
             log "Device has been pwned✅(may be)"
+            log "If the dumping gets stuck, you can press Ctrl+C to cancel, then retry."
         fi
     fi
 }
@@ -670,6 +729,7 @@ ramdisk() {
     local version
     local build_id
     local local_build_id
+    local files
     local mode="$1"
     local rec=2
     all_flash="Firmware/all_flash/all_flash.${device_model}ap.production"
@@ -743,11 +803,19 @@ ramdisk() {
                 log Clean old ramdsk
                 rm -f ../current_ramdisk
             fi
-    
         fi
     fi
-    log $ramdisk_path
-    pause
+    if [[ -d $ramdisk_path ]]; then
+        local ramdisk_files=("Ramdisk.dmg" "DeviceTree.dec" "Kernelcache.dec")
+        for files in $ramdisk_files; do
+            if [[ ! -f $ramdisk_path/$files ]]; then
+                warning "$files missed,redownload"
+                pause
+                rm -rf $ramdisk_path
+                break
+            fi
+        done
+    fi
     mkdir $ramdisk_path 2>/dev/null
     if [[ $arg_l == 1 ]]; then
         touch ../current_ramdisk/build_id
@@ -853,7 +921,7 @@ ramdisk() {
             "$dir/hfsplus" Ramdisk.raw mv sbin/reboot sbin/reboot_bak
             "$dir/hfsplus" Ramdisk.raw mv sbin/halt sbin/halt_bak
             case $build_id in
-                 "12"* | "13"* | "14"* )
+                    "12"* | "13"* | "14"* )
                     echo '#!/bin/bash' > restored_external
                     echo "/sbin/sshd; exec /usr/local/bin/restored_external_o" >> restored_external
                     "$dir/hfsplus" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external_o
@@ -862,6 +930,30 @@ ramdisk() {
                     "$dir/hfsplus" Ramdisk.raw chown 0:0 usr/local/bin/restored_external
                 ;;
             esac
+            if [[ $just_password == 1 ]]; then
+                if [[ $just_password_legacy != 1 ]]; then
+                    case $build_id in
+                            "12"* | "13"* | "14"* )
+                            "$dir/hfsplus" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external.real
+                            cp ../resources/bruteforce/setup.sh ./restored_external
+                            "$dir/hfsplus" Ramdisk.raw add restored_external usr/local/bin/restored_external
+                            "$dir/hfsplus" Ramdisk.raw chmod 755 usr/local/bin/restored_external
+                            "$dir/hfsplus" Ramdisk.raw chown 0:0 usr/local/bin/restored_external
+                        ;;
+                    esac
+                    "$dir/hfsplus" Ramdisk.raw rm usr/local/bin/restored_external.real
+                    cp ../resources/bruteforce/restored_external ./restored_external.sshrd
+                    "$dir/hfsplus" Ramdisk.raw add restored_external.sshrd usr/local/bin/restored_external.sshrd
+                    "$dir/hfsplus" Ramdisk.raw chmod 755 usr/local/bin/restored_external.sshrd
+                    cp ../resources/bruteforce/bruteforce .
+                    "$dir/hfsplus" Ramdisk.raw add bruteforce usr/bin/bruteforce
+                    "$dir/hfsplus" Ramdisk.raw chmod 755 usr/bin/bruteforce
+                    cp ../resources/bruteforce/setup.sh ./restored_external
+                    "$dir/hfsplus" Ramdisk.raw add restored_external usr/local/bin/restored_external
+                    "$dir/hfsplus" Ramdisk.raw chmod 755 usr/local/bin/restored_external
+                    "$dir/hfsplus" Ramdisk.raw chown 0:0 usr/local/bin/restored_external
+                fi
+            fi
             "$dir/xpwntool" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec
         fi
         log "Make iBSS"
@@ -885,7 +977,8 @@ ramdisk() {
             if [[ $1 == "justboot" ]]; then
                 "$dir/iBoot32Patcher" iBEC.raw iBEC.patched --rsa --debug -b "$device_bootargs"
             else
-                "$dir/iBoot32Patcher" iBEC.raw iBEC.patched --rsa --debug -b "rd=md0 -v amfi=0xff amfi_get_out_of_my_way=1 cs_enforcement_disable=1 pio-error=0"
+                local bootarg="rd=md0 -v amfi=0xff amfi_get_out_of_my_way=1 cs_enforcement_disable=1 pio-error=0"
+                "$dir/iBoot32Patcher" iBEC.raw iBEC.patched --rsa --debug -b "$bootarg"
             fi
             "$dir/xpwntool" iBEC.patched iBEC -t iBEC.dec
         fi
@@ -997,12 +1090,18 @@ ramdisk() {
         elif [[ $just_part2 == 1 ]]; then
             device_hacktivate_part2
         elif [[ $just_password == 1 ]]; then
-            device_bruteforce
+            if [[ $just_password_legacy != 1 ]]; then
+                log "Device should show text on screen now."
+                log "After passcode is found please use ./sshrd32.sh --reboot to reboot device"
+            else
+                device_bruteforce
+            fi
         elif [[ $just_unblock_lock == 1 ]]; then
             device_unblock_lock
         fi
     fi
 }
+
 
 
 lastest_enter() {
@@ -1029,8 +1128,13 @@ main() {
     fi
     if [[ "$just_make" != "1" ]] && [[ -z "$device_type" ]]; then
         if [[ "$ship_boot" != "1" ]]; then
-            log "[*] Waiting for the device to enter DFU mode"
-            checkmode DFUall
+            if [[ $just_irec == 1 ]]; then
+                checkmode DFUall irec
+            elif [[ $platform == linux ]]; then
+                checkmode DFUall irec
+            else
+                checkmode DFUall
+            fi
         fi
     fi
     device_info
@@ -1059,38 +1163,33 @@ ssh_menu() {
     input "Select option:"
     options+=("SSH Connection")
     options+=("Jailbreak")
-    #options+=("Activate Device")
-    #options+=("Pseudo Activation TEST")
-    #options+=("Backup Activation Files")
-    #options+=("Restore Activation Files")
     options+=("Check iOS Version")
     options+=("Bypass(iOS5-iOS10)")
     options+=("Brute-force password cracking")
+    options+=("Fix Disable")
     options+=("Clear NVRAM")
     options+=("Reboot")
     options+=("Exit")
-    #options+=("Return to Home")
     select_option "${options[@]}"
     selected="${options[$?]}"
         case $selected in
             "SSH Connection")
-                ssh_message
-                $ssh -p $ssh_port root@127.0.0.1
-                ;;
+                ssh_message ; $ssh -p $ssh_port root@127.0.0.1;;
             "Activate Device")
                 activition; pause;;
-            "Pseudo Activation TEST")
-                hacktivate_device ;;
             "Jailbreak")
-                jailbreak_sshrd; pause;;
+                jailbreak_sshrd;;
             "Backup Activation Files")
                 activition_backup; pause;;
             "Check iOS Version")
                 check_iosvers ;;
-            "Brute-force password cracking")
+            "Brute-force password cracking(iOS7 below)")
                 device_bruteforce; pause;;
+            "Fix Disable")
+                device_unblock_lock
+                ;;
             "Bypass(iOS5-iOS10)")
-                device_hacktivate; pause;;
+                device_hacktivate;;
             "Clear NVRAM")
                 log Clear NVRAM
                 $ssh -p $ssh_port root@127.0.0.1 "nvram -c" ; pause;;
@@ -1430,7 +1529,7 @@ device_hacktivate() {
             fi
             log Rename orgin file
             $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/usr/libexec/lockdownd /mnt1/usr/libexec/lockdownd.bak"
-            log upload new file
+            log Upload new file
             $scp -P $ssh_port ../resources/lockdownd root@127.0.0.1:/mnt1/usr/libexec
             log Set permissions
             $ssh -p $ssh_port root@127.0.0.1 "chmod 755 /mnt1/usr/libexec/lockdownd"
@@ -1440,7 +1539,7 @@ device_hacktivate() {
             fi
             log Rebooting
             $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
-            go_to_menu
+            exit=1
             ;;
         [78]* | 9.[012]* )
             log "Download files"
@@ -1570,7 +1669,7 @@ device_bruteforce() {
     log Mount Filesystem
     $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
     log Upload files
-    $scp -P $ssh_port ../resources/bruteforce root@127.0.0.1:/var/root
+    $scp -P $ssh_port ../resources/bruteforce/bruteforce root@127.0.0.1:/var/root
     $ssh -p $ssh_port root@127.0.0.1 "chmod +x bruteforce"
     $ssh -p $ssh_port root@127.0.0.1 "./bruteforce -u"
     log When it finished, the last one is the password.
@@ -1791,6 +1890,7 @@ device_s5l8900xall() {
     local wtf_patch="../resources/patch/WTF.s5l8900xall.RELEASE.patch"
     local wtf_sha_local="$($sha1sum "$wtf_saved" 2>/dev/null | awk '{print $1}')"
     mkdir ../saved 2>/dev/null
+    mkdir ../saved/patches 2>/dev/null
     if [[ $wtf_sha_local != "$wtf_sha" ]]; then
         log "Downloading WTF.s5l8900xall"
         "$dir/pzb" -g "Firmware/dfu/WTF.s5l8900xall.RELEASE.dfu" -o WTF.s5l8900xall.RELEASE.dfu "http://appldnld.apple.com/iPhone/061-7481.20100202.4orot/iPhone1,1_3.1.3_7E18_Restore.ipsw"
@@ -2156,6 +2256,9 @@ set_ssh_config
 set_path
 for i in "$@"; do
     case "$i" in
+        --irec )
+            just_irec=1
+            ;;
         --version=* )
             device_rd_build_custom="${i#--version=}"
             ;;
@@ -2200,6 +2303,18 @@ for i in "$@"; do
         --password )
             no_menu=1
             just_password=1
+            log "Enter your iOS version(below iOS 6 will use simple way)"
+            read bruteforce_ver
+            cut_os_vers $bruteforce_ver
+            if (( $major_ver < 7 )); then
+                just_password_legacy=1
+            else
+                case $major_ver in
+                    7 ) device_rd_build_custom="7.1.2" ;;
+                    * ) device_rd_build_custom="9.0.2" ;;
+                esac
+                log Will use $device_rd_build_custom ramdisk
+            fi
             ;;
         --hacktivate | --hac | --bypass )
             no_menu=1
