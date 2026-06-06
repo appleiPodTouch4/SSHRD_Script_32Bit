@@ -48,3 +48,4 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/) Add som
 - commit 21 update readme
 - commit 22 fix bruteforce and some bugs
 - commit 23 update readme
+- commit 24 fix linux part,remove justboot part(it is useless),and fix some bugs
