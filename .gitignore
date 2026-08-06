@@ -3,6 +3,7 @@
 /tmp*/
 /saved/
 commit.sh
+commit.bat
 sshrdtest.sh
 /resources/current_platform
 /current_ramdisk

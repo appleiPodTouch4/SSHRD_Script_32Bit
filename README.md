@@ -21,7 +21,7 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/) Add som
 - Add `--unblock-lock` unblock screen lock limit
 - Add `--update` update to newest commit
 ## Current Bugs
-- Linux is unsupport(have some reall bugs)
+-   Windows version has a lot of bugs
 ## Future
 - ...
 # History

@@ -1,0 +1,2 @@
+#!/bin/bash
+/sbin/sshd; exec /usr/local/bin/restored_external_o
