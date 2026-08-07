@@ -9,74 +9,40 @@ script_path=$(dirname "$0")/$(basename "$0")
 enable_latest_enter=0
 ship_build_check=0
 
-
-
-log() {
-    GREEN='\033[32m'
-    RESET='\033[0m'
-    echo -e "${GREEN}[Log]${RESET} ${GREEN}$@${RESET}" > /dev/tty
-    eval "$@" >/dev/null 2>&1
-}
-
-error() {
-    RED='\033[31m'
-    RESET='\033[0m'
-    echo -e "${RED}[ERROR]${RESET} ${RED}$@${RESET}" > /dev/tty
-    eval "$@" >/dev/null 2>&1
-}
-
-warning() {
-    YELLOW='\033[33m'
-    RESET='\033[0m'
-    echo -e "${YELLOW}[WARNING]${RESET} ${YELLOW}$@${RESET}" > /dev/tty
-    eval "$@" >/dev/null 2>&1
-}
-
-debug() {
-    if [[ $(whoami) == "mry0000" ]]; then
-        local BLUE='\033[38;5;45m'
-        RESET='\033[0m'
-        echo -e "${BLUE}[DEBUG]${RESET} ${BLUE}$@${RESET}" > /dev/tty
-        eval "$@" >/dev/null 2>&1
-        pause
-    fi
-}
-
-tip() {
-    local PURPLE='\033[0;35m'
-    local NC='\033[0m'
-    echo -e "${PURPLE}$1${NC}"
-}
+if [[ $no_color != 1 ]]; then
+    TERM=xterm-256color # fix colors for msys2 terminal
+    color_R=$(tput setaf 9)
+    color_G=$(tput setaf 10)
+    color_B=$(tput setaf 12)
+    color_Y=$(tput setaf 208)
+    color_N=$(tput sgr0)
+fi
 
 print() {
-    local PURPLE='\033[0;35m'
-    local NC='\033[0m'
-    echo -e "${PURPLE}$1${NC}"
+    echo "${color_B}${1}${color_N}"
 }
 
 input() {
-    YELLOW='\033[33m'
-    RESET='\033[0m'
-    echo -e "${YELLOW}[Input]${RESET} ${YELLOW}$@${RESET}" > /dev/tty
-    eval "$@" >/dev/null 2>&1
+    echo "${color_Y}[Input] ${1}${color_N}"
+}
+
+log() {
+    echo "${color_G}[Log] ${1}${color_N}"
+}
+
+warn() {
+    echo "${color_Y}[WARNING] ${1}${color_N}"
+}
+
+error() {
+    echo -e "${color_R}[Error] ${1}\n${color_Y}${*:2}${color_N}"
 }
 
 pause() {
-    local i
-    local arg="(or press Ctrl+C to cancel)"
-    local filtered_args=""
-    for i in "$@"; do
-        if [[ $i == noctrlc ]]; then
-            local arg=""
-        else
-            filtered_args="$filtered_args $i"
-        fi
-    done
-    filtered_args=$(echo "$filtered_args" | sed 's/^ //')
-    if [ -z "$filtered_args" ]; then
-        input "Press Enter/Return to continue $arg"
+    if [[ -z $1 ]]; then
+        input "Press Enter/Return to continue (or press Ctrl+C to cancel)"
     else
-        input "$filtered_args $arg"
+        input "$1"
     fi
     read -s
 }
