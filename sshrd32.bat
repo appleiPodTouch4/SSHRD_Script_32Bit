@@ -15,38 +15,39 @@ set "PID=%PID: =%"
 md "%script_dir%tmp%PID%" 2>nul
 pushd "%script_dir%tmp%PID%" 2>nul
 
+set "dir=..\bin\windows"
 set "saved=..\saved"
 set "resources=..\resources"
 set "ssh_port=2222"
-set "sshpass=..\bin\windows\sshpass.exe"
-set "irecovery=..\bin\windows\irecovery.exe"
-set "irecoverys=..\bin\windows\irecoverys.exe"
-set "iBoot32Patcher=..\bin\windows\iBoot32Patcher.exe"
-set "hfsplus=..\bin\windows\hfsplus.exe"
-set "jq=..\bin\windows\jq.exe"
-set "xpwntool=..\bin\windows\xpwntool.exe"
-set "iproxy=..\bin\windows\iproxy.exe"
-set "bspatch=..\bin\windows\bspatch.exe"
-set "curl=..\bin\windows\curl.exe"
-set "grep=..\bin\windows\grep.exe"
-set "plutil=..\bin\windows\plutil.exe"
-set "sed=..\bin\windows\sed.exe"
-set "gawk=..\bin\windows\gawk.exe"
-set "ideviceinfo=..\bin\windows\ideviceinfo.exe"
-set "cut=..\bin\windows\cut.exe"
-set "idevicerestore=..\bin\windows\idevicerestore.exe"
-set "zip=..\bin\windows\7z.exe"
-set "pzb=..\bin\windows\pzb\pzb.exe"
-set "ssh1=..\bin\windows\OpenSSH\ssh.exe"
-set "sftp1=..\bin\windows\OpenSSH\sftp.exe"
-set "scp1=..\bin\windows\OpenSSH\scp.exe"
-set "cat=..\bin\windows\cat.exe"
-set "python=..\bin\windows\Python2.7\python.exe"
-set "ipwndfu=..\bin\windows\ipwndfu\ipwndfu"
-set "primepwn=..\bin\windows\primepwn\primepwn.exe"
-set "zadig=..\bin\windows\zadig.exe"
-set "shasum256=..\bin\windows\shasum256.exe"
-set "sha1sum=..\bin\windows\sha1sum.exe"
+set "sshpass=%dir%\sshpass.exe"
+set "irecovery=%dir%\irecovery.exe"
+set "irecoverys=%dir%\irecoverys.exe"
+set "iBoot32Patcher=%dir%\iBoot32Patcher.exe"
+set "hfsplus=%dir%\hfsplus.exe"
+set "jq=%dir%\jq.exe"
+set "xpwntool=%dir%\xpwntool.exe"
+set "iproxy=%dir%\iproxy.exe"
+set "bspatch=%dir%\bspatch.exe"
+set "curl=%dir%\curl.exe"
+set "grep=%dir%\grep.exe"
+set "plutil=%dir%\plutil.exe"
+set "sed=%dir%\sed.exe"
+set "gawk=%dir%\gawk.exe"
+set "ideviceinfo=%dir%\ideviceinfo.exe"
+set "cut=%dir%\cut.exe"
+set "idevicerestore=%dir%\idevicerestore.exe"
+set "zip=%dir%\7z.exe"
+set "pzb=%dir%\pzb\pzb.exe"
+set "ssh1=%dir%\OpenSSH\ssh.exe"
+set "sftp1=%dir%\OpenSSH\sftp.exe"
+set "scp1=%dir%\OpenSSH\scp.exe"
+set "cat=%dir%\cat.exe"
+set "python=%dir%\Python2.7\python.exe"
+set "ipwndfu=%dir%\ipwndfu\ipwndfu"
+set "primepwn=%dir%\primepwn\primepwn.exe"
+set "zadig=%dir%\zadig.exe"
+set "shasum256=%dir%\shasum256.exe"
+set "sha1sum=%dir%\sha1sum.exe"
 set "device_rd_build_custom=%~1"
 set version=""
 set build=""
@@ -68,7 +69,12 @@ goto main %~1
 :main
     call :set_ssh_config
     if "%~1"=="ssh" (
-        call :ssh_ok
+        call :ssh_message
+        exit /b
+    ) else if "%~1"=="menu" (
+        call :device_iproxy
+        call :ssh_check
+        call :menu
         exit /b
     )
     call :checkmode "DFU"
@@ -355,12 +361,12 @@ goto main %~1
 
     if "%~1"=="no-logging" (
         if not "%debug_mode%"=="1" (
-            start /b ..\bin\windows\iproxy.exe %ssh_port% %port% >nul 2>&1
+            start /b %dir%\iproxy.exe %ssh_port% %port% >nul 2>&1
         ) else (
-            start /b ..\bin\windows\iproxy.exe %ssh_port% %port%
+            start /b %dir%\iproxy.exe %ssh_port% %port%
         )
     ) else (
-        start /b ..\bin\windows\iproxy.exe %ssh_port% %port%
+        start /b %dir%\iproxy.exe %ssh_port% %port%
     )
 
     set "iproxy_pid="
@@ -570,7 +576,7 @@ goto main %~1
     if exist "!wtf_patched!" del /f /q "!wtf_patched!"
     
     call :log Patching WTF.s5l8900xall...
-    "..\bin\windows\bspatch" "!wtf_saved!" "!wtf_patched!" "!wtf_patch!"
+    "%dir%\bspatch" "!wtf_saved!" "!wtf_patched!" "!wtf_patch!"
     
     call :log Sending patched WTF.s5l8900xall (Pwnage 2.0)...
     "%irecovery%" -f "!wtf_patched!"
@@ -598,6 +604,45 @@ goto main %~1
     )
     exit /b 0
 
+:download_comp
+    set "build_id=%~1"
+    set "comp=%~2"
+
+    set "download_targetfile=!comp!.!device_model!"
+    if not "!build_id:~0,2!"=="12" set "download_targetfile=!download_targetfile!ap"
+    set "download_targetfile=!download_targetfile!.RELEASE"
+
+    if exist "..\saved\!device_type!\!comp!_!build_id!.dfu" (
+        copy /y "..\saved\!device_type!\!comp!_!build_id!.dfu" "!comp!" >nul
+    ) else (
+        call :log "Downloading !comp!..."
+        "%pzb%" -g "Firmware/dfu/!download_targetfile!.dfu" -o "!comp!" "%url%"
+        copy /y "!comp!" "..\saved\!device_type!\!comp!_!build_id!.dfu" >nul
+    )
+    exit /b 0
+
+:patch_ibss
+    call :download_comp !build_id! iBSS
+    call :device_fw_key_check temp !build_id!
+
+    for /f "delims=" %%I in ('echo !device_fw_key_temp! ^| "%jq%" -j --arg img "iBSS" ".keys[] | select(.image == $img) | .iv"') do set "iv=%%I"
+    for /f "delims=" %%K in ('echo !device_fw_key_temp! ^| "%jq%" -j --arg img "iBSS" ".keys[] | select(.image == $img) | .key"') do set "key=%%K"
+
+    call :log "Decrypting iBSS..."
+    "%xpwntool%" iBSS iBSS.dec -iv !iv! -k !key!
+
+    call :log "Patching iBSS..."
+    "%iBoot32Patcher%" iBSS.dec pwnediBSS_!build_id! --rsa
+    "%xpwntool%" pwnediBSS_!build_id! pwnediBSS_!build_id!.dfu -t iBSS
+
+    copy /y pwnediBSS_!build_id! "..\saved\!device_type!\" >nul
+    copy /y pwnediBSS.dfu_!build_id! "..\saved\!device_type!\" >nul
+
+    call :log "Pwned iBSS saved at: saved/!device_type!/pwnediBSS_!build_id!"
+    call :log "Pwned iBSS img3 saved at: saved/!device_type!/pwnediBSS_!build_id!.dfu"
+    exit /b
+
+
 :ramdisk
     setlocal enabledelayedexpansion
     set "rec=2"
@@ -608,9 +653,7 @@ goto main %~1
     )
 
     set "comps=iBSS iBEC DeviceTree Kernelcache"
-    if "%~1" NEQ "justboot" (
-        set "comps=!comps! RestoreRamdisk"
-    )
+    set "comps=!comps! RestoreRamdisk"
 
     set "device_target_build=10B329"
     set "device_target_vers=6.1.3" 
@@ -725,9 +768,7 @@ goto main %~1
         )
 
         call :log !getcomp!
-        if defined ipsw_justboot_path (
-            call :unzip "!ipsw_justboot_path!.ipsw" "!path_prefix!!name!" "."
-        ) else if exist "!ramdisk_path!\!name!" (
+        if exist "!ramdisk_path!\!name!" (
             copy /y "!ramdisk_path!\!name!" . >nul
         ) else (
             call :pzb "%url%" "!path_prefix!!name!" "." "!name!"
@@ -770,23 +811,21 @@ goto main %~1
         )
     )
 
-    if "%~1" NEQ "justboot" (
-        call :log Patch RestoreRamdisk
-        cmd /c ""%xpwntool%" RestoreRamdisk.dec Ramdisk.raw"
-        if !device_proc! NEQ 1 (
-            cmd /c ""%hfsplus%" Ramdisk.raw grow 30000000"
-            cmd /c ""%hfsplus%" Ramdisk.raw untar ..\resources\sbplist.tar"
-        )
+    call :log Patch RestoreRamdisk
+    cmd /c ""%xpwntool%" RestoreRamdisk.dec Ramdisk.raw"
+    if !device_proc! NEQ 1 (
+        cmd /c ""%hfsplus%" Ramdisk.raw grow 30000000"
+        cmd /c ""%hfsplus%" Ramdisk.raw untar ..\resources\sbplist.tar"
     )
 
     if !device_proc! EQU 1 (
-        cmd /c ""..\bin\windows\bspatch.exe" Ramdisk.raw Ramdisk.patched ..\resources\patch\018-6494-014.patch"
+        cmd /c ""%dir%\bspatch.exe" Ramdisk.raw Ramdisk.patched ..\resources\patch\018-6494-014.patch"
         cmd /c ""%xpwntool%" Ramdisk.patched Ramdisk.dmg -t RestoreRamdisk.dec"
         call :log Patch iBSS
-        cmd /c ""..\bin\windows\bspatch.exe" iBSS.orig iBSS ..\resources\patch\iBSS.!device_model!ap.RELEASE.patch"
+        cmd /c ""%dir%\bspatch.exe" iBSS.orig iBSS ..\resources\patch\iBSS.!device_model!ap.RELEASE.patch"
         call :log Patch Kernelcache
         move /y Kernelcache.dec Kernelcache0.dec >nul
-        cmd /c ""..\bin\windows\bspatch.exe" Kernelcache0.dec Kernelcache.patched ..\resources\patch\kernelcache.release.s5l8900x.patch"
+        cmd /c ""%dir%\bspatch.exe" Kernelcache0.dec Kernelcache.patched ..\resources\patch\kernelcache.release.s5l8900x.patch"
         cmd /c ""%xpwntool%" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig -iv !iv! -k !key!"
         del /f /q DeviceTree.dec 2>nul
         move /y DeviceTree.orig DeviceTree.dec >nul
@@ -794,58 +833,57 @@ goto main %~1
         cmd /c ""%hfsplus%" Ramdisk.raw untar ..\resources\ssh_old.tar"
         cmd /c ""%xpwntool%" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec"
         call :log Patch iBSS
-        cmd /c ""..\bin\windows\bspatch.exe" iBSS.dec iBSS.patched ..\resources\patch\iBSS.!device_model!ap.RELEASE.patch"
+        cmd /c ""%dir%\bspatch.exe" iBSS.dec iBSS.patched ..\resources\patch\iBSS.!device_model!ap.RELEASE.patch"
         cmd /c ""%xpwntool%" iBSS.patched iBSS -t iBSS.orig"
         call :log Patch Kernelcache
         move /y Kernelcache.dec Kernelcache0.dec >nul
-        cmd /c ""..\bin\windows\bspatch.exe" Kernelcache0.dec Kernelcache.patched ..\resources\patch\kernelcache.release.!device_model!.patch"
+        cmd /c ""%dir%\bspatch.exe" Kernelcache0.dec Kernelcache.patched ..\resources\patch\kernelcache.release.!device_model!.patch"
         cmd /c ""%xpwntool%" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig -iv !iv! -k !key!"
         del /f /q DeviceTree.dec 2>nul
         move /y DeviceTree.orig DeviceTree.dec >nul
     ) else (
-        if "%~1" NEQ "justboot" (
-            cmd /c ""%hfsplus%" Ramdisk.raw untar ..\resources\ssh.tar"
-            if "%~1"=="jailbreak" (
-                echo !device_vers!| findstr /r "^8" >nul
-                if !errorlevel! EQU 0 cmd /c ""%hfsplus%" Ramdisk.raw untar ..\resources\jailbreak\daibutsu\bin.tar"
-            )
-            cmd /c ""%hfsplus%" Ramdisk.raw mv sbin/reboot sbin/reboot_bak"
-            cmd /c ""%hfsplus%" Ramdisk.raw mv sbin/halt sbin/halt_bak"
-            
-            echo !build_id!| findstr /r "^12 ^13 ^14" >nul
-            if !errorlevel! EQU 0 (
-                copy /y ..\resources\restored_external .\restored_external >nul
-                cmd /c ""%hfsplus%" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external_o"
-                cmd /c ""%hfsplus%" Ramdisk.raw add restored_external usr/local/bin/restored_external"
-                cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external"
-                cmd /c ""%hfsplus%" Ramdisk.raw chown 0:0 usr/local/bin/restored_external"
-            )
-            
-            if "!just_password!"=="1" (
-                if "!just_password_legacy!" NEQ "1" (
-                    echo !build_id!| findstr /r "^12 ^13 ^14" >nul
-                    if !errorlevel! EQU 0 (
-                        cmd /c ""%hfsplus%" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external.real"
-                        copy /y ..\resources\bruteforce\setup.sh .\restored_external >nul
-                        cmd /c ""%hfsplus%" Ramdisk.raw add restored_external usr/local/bin/restored_external"
-                        cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external"
-                        cmd /c ""%hfsplus%" Ramdisk.raw chown 0:0 usr/local/bin/restored_external"
-                    )
-                    cmd /c ""%hfsplus%" Ramdisk.raw rm usr/local/bin/restored_external.real"
-                    copy /y ..\resources\bruteforce\restored_external .\restored_external.sshrd >nul
-                    cmd /c ""%hfsplus%" Ramdisk.raw add restored_external.sshrd usr/local/bin/restored_external.sshrd"
-                    cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external.sshrd"
-                    copy /y ..\resources\bruteforce\bruteforce . >nul
-                    cmd /c ""%hfsplus%" Ramdisk.raw add bruteforce usr/bin/bruteforce"
-                    cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/bin/bruteforce"
+        cmd /c ""%hfsplus%" Ramdisk.raw untar ..\resources\ssh.tar"
+        if "%~1"=="jailbreak" (
+            echo !device_vers!| findstr /r "^8" >nul
+            if !errorlevel! EQU 0 cmd /c ""%hfsplus%" Ramdisk.raw untar ..\resources\jailbreak\daibutsu\bin.tar"
+        )
+        cmd /c ""%hfsplus%" Ramdisk.raw mv sbin/reboot sbin/reboot_bak"
+        cmd /c ""%hfsplus%" Ramdisk.raw mv sbin/halt sbin/halt_bak"
+        
+        echo !build_id!| findstr /r "^12 ^13 ^14" >nul
+        if !errorlevel! EQU 0 (
+            copy /y ..\resources\restored_external .\restored_external >nul
+            cmd /c ""%hfsplus%" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external_o"
+            cmd /c ""%hfsplus%" Ramdisk.raw add restored_external usr/local/bin/restored_external"
+            cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external"
+            cmd /c ""%hfsplus%" Ramdisk.raw chown 0:0 usr/local/bin/restored_external"
+        )
+        
+        if "!just_password!"=="1" (
+            if "!just_password_legacy!" NEQ "1" (
+                echo !build_id!| findstr /r "^12 ^13 ^14" >nul
+                if !errorlevel! EQU 0 (
+                    cmd /c ""%hfsplus%" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external.real"
                     copy /y ..\resources\bruteforce\setup.sh .\restored_external >nul
                     cmd /c ""%hfsplus%" Ramdisk.raw add restored_external usr/local/bin/restored_external"
                     cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external"
                     cmd /c ""%hfsplus%" Ramdisk.raw chown 0:0 usr/local/bin/restored_external"
                 )
+                cmd /c ""%hfsplus%" Ramdisk.raw rm usr/local/bin/restored_external.real"
+                copy /y ..\resources\bruteforce\restored_external .\restored_external.sshrd >nul
+                cmd /c ""%hfsplus%" Ramdisk.raw add restored_external.sshrd usr/local/bin/restored_external.sshrd"
+                cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external.sshrd"
+                copy /y ..\resources\bruteforce\bruteforce . >nul
+                cmd /c ""%hfsplus%" Ramdisk.raw add bruteforce usr/bin/bruteforce"
+                cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/bin/bruteforce"
+                copy /y ..\resources\bruteforce\setup.sh .\restored_external >nul
+                cmd /c ""%hfsplus%" Ramdisk.raw add restored_external usr/local/bin/restored_external"
+                cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external"
+                cmd /c ""%hfsplus%" Ramdisk.raw chown 0:0 usr/local/bin/restored_external"
             )
-            cmd /c ""%xpwntool%" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec"
         )
+        cmd /c ""%xpwntool%" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec"
+
         call :log Patch iBSS
         cmd /c ""%xpwntool%" iBSS.dec iBSS.raw"
         set "device_boot4=0"
@@ -862,27 +900,17 @@ goto main %~1
         )
         cmd /c ""%xpwntool%" iBSS.patched iBSS -t iBSS.dec"
         
-        set "skip_ibec=0"
-        if "!build_id:~0,1!"=="7" if not "!device_type:~0,4!"=="iPad" set "skip_ibec=1"
-        if "!build_id:~0,1!"=="8" if not "!device_type:~0,4!"=="iPad" set "skip_ibec=1"
-
-        if "!skip_ibec!"=="0" (
-            call :log Patch iBEC
-            cmd /c ""%xpwntool%" iBEC.dec iBEC.raw"
-            if "%~1"=="justboot" (
-                cmd /c ""%iBoot32Patcher%" iBEC.raw iBEC.patched --rsa -b "!device_bootargs!""
-            ) else (
-                cmd /c ""%iBoot32Patcher%" iBEC.raw iBEC.patched --rsa --debug -b "rd=md0 -v amfi=0xff amfi_get_out_of_my_way=1 cs_enforcement_disable=1 pio-error=0""
-            )
-            cmd /c ""%xpwntool%" iBEC.patched iBEC -t iBEC.dec"
-        )
+        call :log Patch iBEC
+        cmd /c ""%xpwntool%" iBEC.dec iBEC.raw"
+        cmd /c ""%iBoot32Patcher%" iBEC.raw iBEC.patched --rsa --debug -b "rd=md0 -v amfi=0xff amfi_get_out_of_my_way=1 cs_enforcement_disable=1 pio-error=0""
+        cmd /c ""%xpwntool%" iBEC.patched iBEC -t iBEC.dec"
     )
 
     if !device_boot4! EQU 1 (
         call :log Patch Kernelcache
         move /y Kernelcache.dec Kernelcache0.dec >nul
         cmd /c ""%xpwntool%" Kernelcache0.dec Kernelcache.raw"
-        cmd /c ""..\bin\windows\bspatch.exe" Kernelcache.raw Kernelcache.patched ..\resources\patch\kernelcache.release.!device_model!.!build_id!.patch"
+        cmd /c ""%dir%\bspatch.exe" Kernelcache.raw Kernelcache.patched ..\resources\patch\kernelcache.release.!device_model!.!build_id!.patch"
         cmd /c ""%xpwntool%" Kernelcache.patched Kernelcache.dec -t Kernelcache0.dec"
     )
 
@@ -908,68 +936,69 @@ goto main %~1
         call :print Done creating SSH ramdisk files: saved/!device_type!/ramdisk_!build_id!
     )
 
-    if "!ship_boot!" NEQ "1" (
-        if not defined device_pwnd (
-            call :device_pwn
+    if "!device_proc!"=="4" if "!build_id:~0,1!" GEQ "7" if "!build_id:~0,1!" LSS "9" (
+        call :warn Boot iOS 3 or 4 ramdisk may cause boot loop
+        call :yesno
+        if !yesno!=="0" (
+            exit /b
         )
-        set "is_ipad1=0"
-        if "!device_type!"=="iPad1,1" set "is_ipad1=1"
-        
-        if !is_ipad1! EQU 1 (
-            echo !build_id!| findstr /r "^9" >nul
-            if !errorlevel! NEQ 0 (
-                call :patch_ibss
-                call :print Sending iBSS...
-                %irecovery% -f pwnediBSS.dfu
-                timeout /t 2 >nul
-                call :print Sending iBEC...
-                %irecovery% -f "!ramdisk_path!\iBEC"
-            )
-        ) else if !device_proc! LSS 5 (
-            if "!device_pwnrec!" NEQ "1" (
-                call :print Sending iBSS...
-                %irecovery% -f "!ramdisk_path!\iBSS"
-            )
-        )
-        timeout /t 2 >nul
-        set "is_old_proc=0"
-        if !device_proc! EQU 1 set "is_old_proc=1"
-        if "!device_type!"=="iPod2,1" set "is_old_proc=1"
-        if !is_old_proc! NEQ 1 (
-            call :print Sending iBEC...
-            %irecovery% -f "!ramdisk_path!\iBEC"
-            if "!device_pwnrec!"=="1" (
-                %irecovery% -c "go"
-            )
-        )
-        call :checkmode rec 20
-        if "%~1" NEQ "justboot" (
-            call :print Sending ramdisk...
-            "%irecovery%" -f "!ramdisk_path!\Ramdisk.dmg"
-            call :print Running ramdisk
-            %irecovery% -c "getenv ramdisk-delay"
-            %irecovery% -c "ramdisk"
-            timeout /T 1 /NOBREAK > nul 2>&1
-        )
-        call :print Sending DeviceTree...
-        "%irecovery%" -f "!ramdisk_path!\DeviceTree.dec"
-        call :print Running devicetree
-        %irecovery% -c "devicetree"
-        timeout /T 1 /NOBREAK > nul 2>&1
-        call :print Sending KernelCache...
-        "%irecovery%" -f "!ramdisk_path!\Kernelcache.dec"
-        %irecovery% -c "bootx"
-
-        if "%~1"=="justboot" (
-            call :log Device should now boot.
-            endlocal
-            exit /b 0
-        )
-        call :log Booting, please wait...
-        timeout /t 6 >nul
     )
 
-if "!just_boot!"=="1" (
+    if not defined device_pwnd (
+        call :device_pwn
+    )
+    
+    set "is_ipad1=0"
+    if "!device_type!"=="iPad1,1" set "is_ipad1=1"
+    
+    if !is_ipad1! EQU 1 (
+        echo !build_id!| findstr /r "^9" >nul
+        if !errorlevel! NEQ 0 (
+            call :patch_ibss
+            call :print Sending iBSS...
+            %irecovery% -f pwnediBSS.dfu
+            timeout /t 2 >nul
+            call :print Sending iBEC...
+            %irecovery% -f "!ramdisk_path!\iBEC"
+        )
+    ) else if !device_proc! LSS 5 (
+        if "!device_pwnrec!" NEQ "1" (
+            call :print Sending iBSS...
+            %irecovery% -f "!ramdisk_path!\iBSS"
+        )
+    )
+
+    timeout /t 2 >nul
+    set "is_old_proc=0"
+    if !device_proc! EQU 1 set "is_old_proc=1"
+    if "!device_type!"=="iPod2,1" set "is_old_proc=1"
+    if !is_old_proc! NEQ 1 (
+        call :print Sending iBEC...
+        %irecovery% -f "!ramdisk_path!\iBEC"
+        if "!device_pwnrec!"=="1" (
+            %irecovery% -c "go"
+        )
+    )
+    call :checkmode rec 20
+    call :print Sending ramdisk...
+    "%irecovery%" -f "!ramdisk_path!\Ramdisk.dmg"
+    call :print Running ramdisk
+    %irecovery% -c "getenv ramdisk-delay"
+    %irecovery% -c "ramdisk"
+    timeout /T 1 /NOBREAK > nul 2>&1
+    call :print Sending DeviceTree...
+    "%irecovery%" -f "!ramdisk_path!\DeviceTree.dec"
+    call :print Running devicetree
+    %irecovery% -c "devicetree"
+    timeout /T 1 /NOBREAK > nul 2>&1
+    call :print Sending KernelCache...
+    "%irecovery%" -f "!ramdisk_path!\Kernelcache.dec"
+    %irecovery% -c "bootx"
+
+    call :log Booting, please wait...
+    timeout /t 6 >nul
+
+    if "!just_boot!"=="1" (
         call :log Done, use script to connect device
         endlocal
         exit /b 0
@@ -984,40 +1013,77 @@ if "!just_boot!"=="1" (
         call :log Waiting for device...
         call :log You may need to unplug and replug your device.
         set /a try_cnt=0
-        
-        :ssh_loop
-        for /f "delims=" %%i in ('%ssh% -p !ssh_port! root@127.0.0.1 "echo 1" 2^>nul') do set "found=%%i"
-        set /a try_cnt+=1
-        
-        if "!found!"=="1" goto ssh_ok
-        
-        if !try_cnt! EQU 10 (
-            call :error Unable to connect SSH, please try boot again
-            endlocal
-            exit /b 1
+    )
+    call :ssh_check
+    exit /b
+
+:ssh_check
+    for /f "delims=" %%i in ('%ssh% -p !ssh_port! root@127.0.0.1 "echo 1" 2^>nul') do set "found=%%i"
+    set /a try_cnt+=1
+    
+    if "!found!"=="1" (
+        set "do_trans=0"
+        if !device_proc! EQU 1 set "do_trans=1"
+        if "!device_type!"=="iPod2,1" set "do_trans=1"
+
+        if !do_trans! EQU 1 (
+            call :log Transferring some files
+            cmd /c ""%dir%\tar.exe" -xvf ..\resources\ssh.tar ./bin/chmod ./bin/chown ./bin/cp ./bin/dd ./bin/mount.sh ./bin/tar ./usr/bin/date ./usr/bin/df ./usr/bin/du"
+            %ssh% -p !ssh_port! root@127.0.0.1 rm -f /bin/mount.sh /usr/bin/date
+            cmd /c "%scp% -P !ssh_port! bin/* root@127.0.0.1:/bin"
+            cmd /c "%scp% -P !ssh_port! usr/bin/* root@127.0.0.1:/usr/bin"
         )
-        timeout /t 2 >nul
-        goto ssh_loop
+        goto menu
     )
 
-:ssh_ok
-    set "do_trans=0"
-    if !device_proc! EQU 1 set "do_trans=1"
-    if "!device_type!"=="iPod2,1" set "do_trans=1"
-
-    if !do_trans! EQU 1 (
-        call :log Transferring some files
-        cmd /c ""..\bin\windows\tar.exe" -xvf ..\resources\ssh.tar ./bin/chmod ./bin/chown ./bin/cp ./bin/dd ./bin/mount.sh ./bin/tar ./usr/bin/date ./usr/bin/df ./usr/bin/du"
-        %ssh% -p !ssh_port! root@127.0.0.1 rm -f /bin/mount.sh /usr/bin/date
-        cmd /c "%scp% -P !ssh_port! bin/* root@127.0.0.1:/bin"
-        cmd /c "%scp% -P !ssh_port! usr/bin/* root@127.0.0.1:/usr/bin"
+    if !try_cnt! EQU 10 (
+        call :error Unable to connect SSH, please try boot again
+        endlocal
+        exit /b 1
     )
+    timeout /t 2 >nul
+    goto :ssh_check
 
-    call :log Connecting to device via SSH...
+
+:ssh_message
+    call :print "* For accessing data, note the following:"
+    call :print "* Host: sftp://127.0.0.1 | User: root | Password: alpine | Port: !ssh_port!"
+    call :print "* Other Useful SSH Ramdisk commands:"
+    call :print "* Clear NVRAM with this command:"
+    call :print     "nvram -c"
+    call :print "* Erase All Content and Settings with this command (iOS 9+ only):"
+    call :print     "nvram oblit-inprogress=5"
+    call :print "* To reboot, use this command:"
+    call :print     "reboot_bak"
+    call :print "* Remove Setup.app:"
+    call :print     "rm -rf /mnt1/Applications/Setup.app"
     !ssh! -p !ssh_port! root@127.0.0.1
-
     endlocal
     exit /b 0
+
+:menu
+    setlocal enabledelayedexpansion
+    cls
+    echo *** SSHRD_Script_32Bit ***
+    echo - Script by MrY0000 -
+    echo - Thanks LuckZGD Setup.app -
+    echo - Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -
+    echo Select option:
+    set "options=SSH Connection"
+    set "options=!options! Exit"
+    call :select_option "menu_select" "SSH Connection" "Exit"
+    if "!selected!"=="SSH Connection" (
+        call :ssh_message
+    ) else if "!selected!"=="Exit" (
+        set exit="1"
+        exit /b 0
+    )
+    if not !exit!=="1" (
+        goto menu
+    )
+    exit /b 0
+
+:jailbreak
 
 
 :select_option
