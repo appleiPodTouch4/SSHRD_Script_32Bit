@@ -3,25 +3,32 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/) Add som
 
 ## Usage
 - Clone this repository: `git clone https://github.com/appleiPodTouch4/SSHRD_Script_32Bit --recursive`
-- Run `./sshrd32.sh` use default version
-## Simplify Args
+- Run `./sshrd32.sh` or `.\sshrd32.bat` use default version
+- Run `./sshrd32.sh` or `.\sshrd32.bat` + iOS version/build id + Main args + Other args
+## Main Args
 - 1.`./sshrd32.sh "ios ver/build ver"` use custom version,only support ios verion and ios build version
 - 2.`./sshrd32.sh boot` boot ramdisk after make
-- 3.`./sshrd32.sh ssh` connect ssh
-## Args
+- 3.`./sshrd32.sh reboot` reboot device
+- 4.`./sshrd32.sh ssh` connect ssh
+- 5.`./sshrd32.sh menu` go to main menu
+- 6.`./sshrd32.sh get-ios-ver` Get device iOS version
+- 7.`./sshrd32.sh dump-blobs` Dump shsh blobs
+- 8.`./sshrd32.sh dump-raws` Dump raws
+- 9.`./sshrd32.sh jailbreak` Jailbreak device(support iOS4-iOS9.3.4) only Untethered
+- 10.`./sshrd32.sh password` Unlimite try password
+- 11.`./sshrd32.sh hactivate` Hactivate device(Support iOS4-10)
+- 12.`./sshrd32.sh hactivate-part-2` The next step for hacktivate on iOS 9.3+
+- 13.`./sshrd32.sh update` Update this script
+- 14.`./sshrd32.sh help` Show script help
+## Other Args
 - Add `--version=“ramdisk build ver”/“ramdisk ver”` use custom version,only support ios verion and ios build version
 - Add `--device="iPhone/iPad/iPodx,x"` custom device_type,without device check
-- Add `--menu”` directly access the menu
-- Add `--make` make ssh ramdisk only, without boot
-- Add `--reboot` reboot device in sshrd
-- Add `--jb` Jailbreak device(support iOS4-iOS9.3.4) only Untethered
-- Add `--password` bruteforce password(only support 4-digit password)
-- Add `--bypass` hacktivate device(support iOS7-9.2.X)
-- Add `--bypass-part-1` hacktivate device(support iOS9.3-10.3.4)
-- Add `--unblock-lock` unblock screen lock limit
-- Add `--update` update to newest commit
+- Add `--ipsw”` Use local ipsw instead download
+- Add `--no-device` Make ramdisk without device
+- Add `--debug` Run script with set -x
+- Add `--irec` Check device using irecovery
 ## Current Bugs
--   Windows version has a lot of bugs
+-   Windows version is in VERY early stages of development,waiting for update
 ## Future
 - ...
 # History
@@ -49,3 +56,8 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/) Add som
 - commit 22 fix bruteforce and some bugs
 - commit 23 update readme
 - commit 24 fix linux part,remove justboot part(it is useless),and fix some bugs
+- commit 25 add windows bins,add sshrd.bat
+- commit 26 add sshrd32.bat
+- commit 27 fix
+- commit 28 fix sshrd32.bat
+- commit 29 rewrite the main logic of sshrd32.sh,rewrite readme

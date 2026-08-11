@@ -771,7 +771,7 @@ goto main %~1
         if exist "!ramdisk_path!\!name!" (
             copy /y "!ramdisk_path!\!name!" . >nul
         ) else (
-            call :pzb "%url%" "!path_prefix!!name!" "." "!name!"
+            %pzb% -g "!path_prefix!!name!" -o "!name!" "!url!"
         ) 
 
         if not exist "!name!" (

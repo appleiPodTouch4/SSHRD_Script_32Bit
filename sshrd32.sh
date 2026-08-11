@@ -6,8 +6,7 @@ ssh_port=2222
 isoscheck=1
 jelbrek=../resources/Jailbreak
 script_path=$(dirname "$0")/$(basename "$0")
-enable_latest_enter=0
-ship_build_check=0
+enable_lastest_enter=0
 
 if [[ $no_color != 1 ]]; then
     TERM=xterm-256color # fix colors for msys2 terminal
@@ -31,7 +30,7 @@ log() {
 }
 
 warn() {
-    echo "${color_Y}[WARNING] ${1}${color_N}"
+    echo "${color_Y}[warn] ${1}${color_N}"
 }
 
 error() {
@@ -83,10 +82,8 @@ oscheck() {
         fi
         if [[ "$platform" == "macos" ]]; then
             if [[ "$platform_arch" == "arm64" ]]; then
-                if [[ "$ship_platform_check" != "1" ]]; then
-                    warning "Using M-series chips may cause compatibility issues; please use with caution."
+                    warn "Using M-series chips may cause compatibility issues; please use with caution."
                     pause Press Enter to ignore this issue.  
-                fi
                 dir="../bin/macos/arm64"
             else
                 dir="../bin/macos"
@@ -97,10 +94,8 @@ oscheck() {
                 macos_minor_ver=${macos_ver:3}
                 macos_minor_ver=${macos_minor_ver%.*}
                 if (( macos_minor_ver < 11 )); then
-                    if [[ "$ship_platform_check" != "1" ]]; then
                         error "Your macOS version is too old. Please upgrade to macOS High Sierra or later."
                         exit
-                    fi
                 fi
                 case $macos_minor_ver in
                     #11 ) macos_name="El Capitan";; too old
@@ -119,7 +114,7 @@ oscheck() {
                 26 ) macos_name="Tahoe";;
             esac
             if (( macos_major_ver > 12 )); then
-                warning "There may be compatibility issues when using devices running macOS Monterey or later. Do you want to continue?"
+                warn "There may be compatibility issues when using devices running macOS Monterey or later. Do you want to continue?"
                 yesno continue?
                  if [[ $? == 1 ]]; then
                     :
@@ -129,7 +124,7 @@ oscheck() {
             fi
             platform_message="macOS ${macos_name}($platform_arch)"
         elif [[ "$platform" == "linux" ]]; then
-            warning The Linux version is still being adapted, and some features have not yet been fixed. Should we continue using it?
+            warn The Linux version is still being adapted, and some features have not yet been fixed. Should we continue using it?
             pause Press Enter to continue.
             check_sudo
             #linux_part
@@ -191,7 +186,7 @@ linux_part() {
     elif [[ -n $ubuntu_ver || -n $debian_ver || -n $fedora_ver ]]; then
         error "Your distro version ($platform_ver - $platform_arch) is not supported. See the repo README for supported OS versions/distros"
     else
-        warning "Your distro ($platform_ver - $platform_arch) is not detected/supported. See the repo README for supported OS versions/distros"
+        warn "Your distro ($platform_ver - $platform_arch) is not detected/supported. See the repo README for supported OS versions/distros"
         print "* You may still continue, but you will need to install required packages and libraries manually as needed."
         sleep 5
         pause
@@ -221,6 +216,17 @@ set_path() {
         pause Press enter to exit
         exit 1
     fi
+    sudo="/usr/bin/sudo"
+    if [[ $device_argmode == "none" ]]; then
+        device_disable_sudoloop=1
+        device_disable_usbmuxd=1
+    fi
+    if [[ $($sudo -V 2>&1) == "sudo-rs"* ]]; then
+        if [[ -z $device_disable_sudoloop && -z $device_disable_usbmuxd ]]; then
+            log "sudo-rs detected. Switching to sudo.ws"
+        fi
+        sudo+=".ws"
+    fi
     chmod +x $dir/*
     if [[ "$platform" == "macos" ]]; then
         sshpass=""
@@ -236,6 +242,7 @@ set_path() {
         ideviceactivation=""
         ideviceinstaller=""
         primepwn=""
+        a6meowing=""
         gaster=""
         iBoot32Patcher=""
         xpwntool=""
@@ -294,6 +301,7 @@ set_path() {
     ideviceactivation+=$dir/ideviceactivation
     ideviceinstaller+=$dir/ideviceinstaller
     primepwn+=$dir/primepwn
+    gaster+=$dir/gaster
     iBoot32Patcher+=$dir/iBoot32Patcher
     xpwntool+=$dir/xpwntool
     hfsplus+=$dir/hfsplus
@@ -379,6 +387,25 @@ install_depends() {
     fi
 }
 
+validate_build() {
+    local raw_build="$1"
+    [[ -z "$raw_build" ]] && return 1
+
+    local last_char="${raw_build: -1}"
+
+    local formatted_build
+    formatted_build=$(printf '%s' "$raw_build" | tr '[:lower:]' '[:upper:]')
+    if [[ "$last_char" =~ ^[a-z]$ ]]; then
+        formatted_build="${formatted_build%?}${last_char}"
+    fi
+
+    if [[ "$formatted_build" =~ ^[0-9]+[A-Z]+[0-9]+[a-z]?$ ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
 set_ssh_config() {
     if [ -z "$1" ]; then
         cp ../resources/ssh_config .
@@ -399,6 +426,38 @@ set_ssh_config() {
         ssh="$dir/sshpass -p $2 ssh -F ./ssh_config"
         scp="$dir/sshpass -p $2 scp -F ./ssh_config"
     fi
+}
+
+file_extract() {
+    local archive="$1"
+    local dest="$2"
+    local arr=()
+    if [[ $platform == "macos" ]]; then
+        arr+=("-xzvf" "$archive")
+        [[ -n $dest ]] && arr+=("-C" "$dest")
+        tar "${arr[@]}"
+        return
+    fi
+    arr+=("-o" "$archive")
+    [[ -n $dest ]] && arr+=("-d" "$dest")
+    unzip "${arr[@]}"
+}
+
+file_extract_from_archive() {
+    local archive="$1"
+    local file="$2"
+    local dest="$3"
+    [[ -z $dest ]] && dest=.
+    local arr=()
+    if [[ $platform == "macos" && $file != *"/"* ]]; then
+        arr+=("-xzvOf" "$archive")
+        arr+=("$file")
+        tar "${arr[@]}" > "$dest/$file"
+        return
+    fi
+    arr+=("-o" "-j" "$archive" "$file")
+    [[ -n $dest ]] && arr+=("-d" "$dest")
+    unzip "${arr[@]}"
 }
 
 
@@ -490,7 +549,6 @@ checkmode() {
 }
 
 device_info() {
-    
     if [[ -z $device_type ]]; then
         device_type=$($irecovery -q | grep -i "product" | awk -F': ' '{print $2}')
         device_protocol=$($ideviceinfo -s -k ProtocolVersion 2>/dev/null)
@@ -579,7 +637,7 @@ device_info() {
 }
 
 update() {
-    log Checking update
+    log "Checking update"
     local local_ver=$(git rev-parse --short HEAD)
     local commit_info=$(curl -s "https://api.github.com/repos/appleiPodTouch4/SSHRD_Script_32Bit/commits?per_page=1" | $jq -r '.[0]')
     local sha=$(echo "$commit_info" | $jq -r '.sha')
@@ -589,7 +647,7 @@ update() {
         return
     fi
     if [[ $local_ver == $latest ]]; then
-        log It is already the latest commit,no upgrade required
+        log "It is already the latest commit,no upgrade required"
     else
         yesno "Newest commit is $latest. Do you want to update?" 1
         if [[ $? == 1 ]]; then
@@ -601,7 +659,7 @@ update() {
             git fetch origin
             git reset --hard origin/main
             if [[ $(git rev-parse --short HEAD) == $latest ]]; then
-                log Update successfully,run ./sshrd32.sh again
+                log "Update successfully,run ./sshrd32.sh again"
             else
                 error Update failed,please check internet connection
                 return
@@ -614,85 +672,150 @@ update() {
 
 ######pwn######
 device_pwn() {
-    local a5
-    log Getting device info and pwning... this may take a second
-    local device_pwnd="$($irecovery -q | grep "PWND" | cut -c 7-)"
-    if [[ -z $device_pwnd ]]; then
+    local tool
+    log "Getting device info and pwning... this may take a second"
+    device_pwnd="$($irecovery -q | grep "PWND" | cut -c 7-)"
+    device_srtg="$($irecovery -q | grep "SRTG" | cut -c 7-)"
+    if [[ -n $device_pwnd ]]; then
+        log "Device seems to be already in pwned DFU mode"
+        print "* Pwned: $device_pwnd"
         case $device_proc in
-            1 ) device_s5l8900xall ;;
-            4 ) 
-            case $device_type in
-                iPad1,1 | iPhone3,* | iPod[24],1 )
-                if [[ $platform == linux ]]; then
-                    $ipwnder -p
-                else
-                    $primepwn
-                fi
-                ;;
-                * )
-                log Pwn:ipwnder
-                if [[ $platform == macos ]]; then
-                    $ipwnder
-                else
-                    $ipwnder -p
-                fi
-                ;;
-            esac
-             ;;
-            5 ) a5=1 ;;
-            6 )
-            log Pwn:ipwnder
-            if [[ $platform == macos ]]; then
-                $ipwnder
-            else
-                $ipwnder -p
-            fi
-            ;;
+            [56] ) device_send_unpacked_ibss;;
         esac
+    elif [[ $device_mode == "DFU" && $device_boot4 != 1 && $device_srtg != "iBoot"* ]] &&
+            [[ $device_proc == 4 || $device_proc == 5 || $device_proc == 6 ]]; then
+        log "No SRTG for device in DFU mode! Already pwned iBSS mode?"
+        print "* If your device is not in pwnDFU/kDFU mode, sending iBEC will fail."
+        return
     fi
+
+    if [[ $device_proc == 1 ]]; then
+        device_s5l8900xall
+        return
+    fi
+
     if [[ $device_proc == 5 ]]; then
-        if [[ $ship_send_pwnibss != 1 ]]; then 
-            while true; do
-                local device_pwnd2="$($irecovery -q | grep "PWND" | cut -c 7-)"
-                if [ "$device_pwnd2" != "checkm8" ]; then
-                    print "pwn a5 device needs Arduino+USB Host Shield or Pi Pico"
-                    pause when you have been pwned,press enter to continue
-                else
-                    break
-                fi
-            done
-            device_send_unpacked_ibss
+        log "Device is now in DFU mode. Now put your device in PWNED DFU mode using checkm8-a5."
+        print "* For more details, go to: https://github.com/LukeZGD/Legacy-iOS-Kit/wiki/checkm8-a5"
+        pause
+        log "Checking for device"
+        device_pwnd="$($irecovery -q | grep "PWND" | cut -c 7-)"
+        if [[ -n $device_pwnd ]]; then
+            log "Found device in pwned DFU mode."
+            print "* Pwned: $device_pwnd"
         else
-            warning make sure you have been sent pwnibss
-            pause press enter to continue
+            warn "If you haven't sent pwnibss,press Ctrl+C to exit"
+            warn "If you have sent pwnibss,press Enter to continue"
+            pause
+            device_send_unpacked_ibss
         fi
     fi
-    device_pwnd1="$($irecovery -q | grep "PWND" | cut -c 7-)"
-    if [[ $device_proc != 1 ]]; then
-        if [[ $device_proc != 5 && $device_proc != 6 ]]; then
-            if [[ -n $device_pwnd1 ]]; then
-                log Device has been pwned✅
-            else
-                error "Unable to pwn device❎(close i4/3u tools and try again)"
-                exit 1
-            fi
-        else
-            log "Device has been pwned✅(may be)"
-            log "If the dumping gets stuck, you can press Ctrl+C to cancel, then retry."
+
+    if [[ $device_proc == 4 ]]; then
+        tool="primepwn"
+        if [[ $platform == "macos" && $device_type != "iPod2,1" ]]; then
+            tool="ipwnder_lite"
         fi
+    elif [[ $device_proc == 6 ]]; then
+        tool="litera1n"
+        if [[ $platform == "macos" ]]; then
+            tool="ipwnder32"
+            if [[ $platform_arch == "arm64" ]]; then
+                tool="ipwnder_lite"
+            fi
+        elif [[ $device_type == "iPhone5,"* ]]; then
+            tool="a6meowing"
+        fi
+    elif [[ $device_proc == 7 && $platform == "macos" && $platform_arch == "arm64" ]]; then
+        tool="ipwnder_lite"
+    fi
+    log "Placing device to pwnDFU mode using $tool"
+    print "* If pwning fails and gets stuck, you can press Ctrl+C to cancel, then re-enter DFU and retry."
+
+    if [[ $tool == "a6meowing" ]]; then
+        $a6meowing
+        tool_pwned=$?
+    elif [[ $tool == "litera1n" ]]; then
+        kuroutadori_init
+        kuroutadori_litera1n -p
+        tool_pwned=$?
+    elif [[ $tool == "ipwnder32" ]]; then
+        "$dir/ipwnder32" -p --noibss
+        tool_pwned=$?
+    elif [[ $tool == "ipwnder_lite" ]]; then
+        mkdir -p image3 ../saved/image3
+        cp ../saved/image3/* image3/ 2>/dev/null
+        "$dir/ipwnder" -pv
+        tool_pwned=$?
+        cp image3/* ../saved/image3/ 2>/dev/null
+        log "gaster reset"
+        $gaster reset
+    elif [[ $tool == "primepwn" ]]; then
+        $primepwn
+        tool_pwned=$?
+    fi
+    sleep 1
+
+    log "Checking for device"
+    irec_pwned=$($irecovery -q | grep -c "PWND")
+    device_pwnd="$($irecovery -q | grep "PWND" | cut -c 7-)"
+    # irec_pwned is instances of "PWND" in serial, must be 1
+    # tool_pwned is error code of pwning tool, must be 0
+    if [[ $irec_pwned != 1 && $tool_pwned != 0 ]]; then
+        error "Pwn device failed,you can re-enter DFU and retry"
+        exit
+    fi
+    if [[ -n $device_pwnd ]]; then
+        log "Found device in pwned DFU mode."
+        print "* Pwned: $device_pwnd"
+        if [[ $device_proc == 6 ]]; then
+            device_send_unpacked_ibss
+        fi
+    elif [[ $device_proc == 6 ]]; then
+        device_srtg="$($irecovery -q | grep "SRTG" | cut -c 7-)"
+        if [[ $device_srtg != "iBoot"* ]]; then
+            log "Found device in pwned iBSS mode."
+        else
+            error "Pwn device failed,you can re-enter DFU and retry"
+            exit
+        fi
+    else
+        error "Pwn device failed,you can re-enter DFU and retry"
+        exit
     fi
 }
 
+
 device_send_unpacked_ibss() {
     local pwnrec="pwned iBSS"
-    device_rd_build=
-    patch_ibss
-    log "Sending unpacked iBSS..."
-    $primepwn pwnediBSS
-    local tool_pwned=$?
+    local tool_pwned
+    if [[ $device_boot4 == 1 ]]; then
+        pwnrec="pwned recovery"
+        cp iBSS.patched pwnediBSS
+    else
+        device_rd_build=
+        patch_ibss
+    fi
+    if [[ $device_pwnd == *"wnder" ]]; then
+        log "Sending packed iBSS..."
+        $primepwn pwnediBSS.dfu
+        tool_pwned=$?
+    elif [[ $device_proc == 6 ]]; then
+        log "gaster reset"
+        $gaster reset
+        sleep 1
+        log "Sending iBSS..."
+        $irecovery -f pwnediBSS.dfu
+        tool_pwned=$?
+    else
+        log "Sending unpacked iBSS..."
+        $primepwn pwnediBSS
+        tool_pwned=$?
+    fi
+    rm -f pwnediBSS
     if [[ $tool_pwned != 0 ]]; then
         error "Failed to send iBSS. Your device has likely failed to enter PWNED DFU mode." \
-        "* You might need to exit DFU and (re-)enter PWNED DFU mode before retrying."
+              "* You might need to exit DFU and (re-)enter PWNED DFU mode before retrying."
     fi
     sleep 1
     log "Checking for device"
@@ -700,12 +823,90 @@ device_send_unpacked_ibss() {
     device_pwnd="$(echo "$irec" | grep "PWND" | cut -c 7-)"
     if [[ -z $device_pwnd && $irec != "ERROR"* ]]; then
         log "Device should now be in $pwnrec mode."
-        log Device has been pwned✅
+    elif [[ $device_proc == 5 ]]; then
+        error "Device failed to enter $pwnrec mode." \
+              "* If you are using Arduino for checkm8-a5, make sure you are using my (LukeZGD) or synackuk fork of checkm8-a5. Do not use a1exdandy checkm8-a5."
     else
         error "Device failed to enter $pwnrec mode."
-        error "Unable to pwn device❎(close i4/3u tools and try again)"
-        exit 1
     fi
+}
+
+device_s5l8900xall() {
+    local wtf_sha="cb96954185a91712c47f20adb519db45a318c30f"
+    local wtf_saved="../saved/patches/WTF.s5l8900xall.RELEASE.dfu"
+    local wtf_patched="$wtf_saved.patched"
+    local wtf_patch="../resources/patch/WTF.s5l8900xall.RELEASE.patch"
+    local wtf_sha_local="$($sha1sum "$wtf_saved" 2>/dev/null | awk '{print $1}')"
+    mkdir ../saved 2>/dev/null
+    mkdir ../saved/patches 2>/dev/null
+    if [[ $wtf_sha_local != "$wtf_sha" ]]; then
+        log "Downloading WTF.s5l8900xall"
+        "$dir/pzb" -g "Firmware/dfu/WTF.s5l8900xall.RELEASE.dfu" -o WTF.s5l8900xall.RELEASE.dfu "http://appldnld.apple.com/iPhone/061-7481.20100202.4orot/iPhone1,1_3.1.3_7E18_Restore.ipsw"
+        rm -f "$wtf_saved"
+        mv WTF.s5l8900xall.RELEASE.dfu $wtf_saved
+    fi
+    wtf_sha_local="$($sha1sum "$wtf_saved" | awk '{print $1}')"
+    if [[ $wtf_sha_local != "$wtf_sha" ]]; then
+        error "SHA1sum mismatch. Expected $wtf_sha, got $wtf_sha_local. Please run the script again"
+    fi
+    rm -f "$wtf_patched"
+    log "Patching WTF.s5l8900xall"
+    $bspatch $wtf_saved $wtf_patched $wtf_patch
+    log "Sending patched WTF.s5l8900xall (Pwnage 2.0)"
+    $irecovery -f "$wtf_patched"
+    checkmode DFU
+    sleep 1
+    device_srtg="$($irecovery -q | grep "SRTG" | cut -c 7-)"
+    log "SRTG: $device_srtg"
+    if [[ $device_srtg == "iBoot-636.66.3x" ]]; then
+        device_argmode=
+        device_type=$($irecovery -q | grep "PRODUCT" | cut -c 10-)
+        device_model=$($irecovery -q | grep "MODEL" | cut -c 8-)
+        device_model="${device_model%??}"
+        device_pwnd="Pwnage 2.0"
+    fi
+}
+
+kuroutadori_init() {
+    local comm="https://sep.lol/files/legacypreviews/v1.0.2/a3ad4e6e525393239b3ac4ad58499f25a336b03b97cba6fba4f3a273c8505653548f2c7ad37fc18b1e69e0fddb5b73a3/kurouta_dori_v1.0.2_75aab959_legacymacosx.tar.gz"
+    local sha1="61d3d964d194fd9a2084045c3cd95dc3e7920015"
+    kuroutadori="kuroutadori_${platform}"
+    if [[ $device_argmode == 1 ]]; then
+        psudo="$sudo"
+    else
+        psudo="/usr/bin/sudo"
+    fi
+    if [[ $platform == "linux" ]]; then
+        kuroutadori+="-${platform_arch}"
+        comm="https://sep.lol/files/legacypreviews/v1.0.2/37daa814d98a38640813527be6c82ec1ee0561923b543c2290a0d519e9b2e7f7b73147a26e38d7f8a849fd70e0713125/kurouta_dori_v1.0.2_75aab959_linux-amd64.tar.gz"
+        sha1="6d801a59979c64ff73015a8bfc950518dc043525"
+        if [[ $platform_arch == "arm64" ]]; then
+            comm="https://sep.lol/files/legacypreviews/v1.0.2/e04e9d27bcb8339e2e876ad92cc751b1e679b1ce91d2807b13ff1bc820d97349ee5ce5d1c58e61ec062e1a6b7bc2b726/kurouta_dori_v1.0.2_75aab959_linux-arm64.tar.gz"
+            sha1="1dea1e3e5c7ca921ea6f6380ed0261d9c36a0165"
+        fi
+    fi
+    if [[ ! -s ../saved/$kuroutadori/bin/litera1n || $(cat ../saved/$kuroutadori/sha1check) != "$sha1" ]]; then
+        rm -rf ../saved/$kuroutadori
+        file_download "$comm" kuroutadori.tar.gz $sha1
+        mkdir -p ../saved/$kuroutadori
+        tar -xvf kuroutadori.tar.gz -C ../saved/$kuroutadori
+        echo "$sha1" > ../saved/$kuroutadori/sha1check
+    fi
+    kuroutadori="$psudo ../saved/$kuroutadori/bin"
+}
+
+kuroutadori_litera1n() {
+    local tool_pwned
+    print "* If pwning fails, try to rerun the script with --ra1n-timeout=1000000 (or adjust the value as needed)"
+    print "* If it gets stuck at \"checkm8 setup stage\", unplug and replug the device."
+    print "* If it gets stuck at \"Checkmate?\", press Ctrl+C to cancel, then re-enter DFU and retry."
+    for i in {1..3}; do
+        log "Running litera1n (attempt $i): $kuroutadori/litera1n $1"
+        $kuroutadori/litera1n $1
+        tool_pwned=$?
+        [[ $tool_pwned == 0 || $tool_pwned == 30 ]] && break
+    done
+    return $tool_pwned
 }
 
 #####main######
@@ -722,15 +923,17 @@ ramdisk() {
     local build_id
     local local_build_id
     local files
-    local mode="$1"
+    local arch
+    local res
+    local mode=$main_argmode
+    local mode1=$other_argmode
     local rec=2
     all_flash="Firmware/all_flash/all_flash.${device_model}ap.production"
-    if [[ no_ramdisk == 1 ]]; then
-        return
-    fi
+
     if [[ $1 == "setnvram" ]]; then
         rec=$2
     fi
+
     comps+=("RestoreRamdisk")
     case $device_type in
         iPhone1,[12] | iPod1,1 ) device_target_build="7E18"; device_target_vers="3.1.3";;
@@ -740,24 +943,24 @@ ramdisk() {
         iPhone5,[34] ) device_target_build="11D257";;
         * ) device_target_build="10B329";;
     esac
-    if [[ $just_useipsw == 1 ]]; then
-        if [[ -n $device_rd_build_custom ]]; then
-            if [[ "$device_rd_build_custom" == [0-9].* ]]; then
-                if [[ $device_rd_build_custom == [123].* ]]; then
+    if [[ $mode1 == "ipsw" ]]; then
+        if [[ -n $device_rd_ver ]]; then
+            if [[ "$device_rd_ver" == [0-9].* ]]; then
+                if [[ $device_rd_ver == [123].* ]]; then
                     local i="iPhone"
                 else
                     local i="i"
                 fi
-                log Select ${i}OS${device_rd_build_custom} ipsw to make ssh ramdisk
+                log "Select ${i}OS${device_rd_ver} ipsw to make ssh ramdisk"
             else
-                log Select $device_rd_build_custom ipsw to make ssh ramdisk
+                log "Select $device_rd_ver ipsw to make ssh ramdisk"
             fi
         else
-            log Select $device_target_build ipsw to make ssh ramdisk
+            log Select "$device_target_build ipsw to make ssh ramdisk"
         fi
         local try=0
         while true; do
-            ipsw_path="$($zenity --file-selection --multiple --file-filter='IPSW | *.ipsw' --title="Select IPSW file(s)")"
+            ipsw_path="$($zenity --file-selection --file-filter='IPSW | *.ipsw' --title="Select IPSW file(s)")"
             get_ipsw_info target $ipsw_path
             if [[ -z $ipsw_path || $ipsw_select_wrong == 1 ]]; then
                 error You seleted wrong ipsw,please selet again
@@ -768,7 +971,7 @@ ramdisk() {
                 fi
             else
                 if [[ $device_ipsw_vers == [12].* ]]; then
-                    warning "This version cannot make ramdisk(it has something wrong),please select iOS3+ IPSW"
+                    warn "This version cannot make ramdisk(it has something wrong),please select iOS3+ IPSW"
                     exit
                 else
                     case $device_ipsw_build in
@@ -782,284 +985,265 @@ ramdisk() {
             fi
         done
     fi
-    if [[ -n $device_rd_build_custom ]]; then
-        if [[ $ship_build_check == 1 ]] || [[ $ipsw_isbeta == 1 ]]; then
-            device_rd_build=$device_rd_build_custom
-        else
-            if [[ "$device_rd_build_custom" =~ ^[0-9]+[A-Za-z][0-9]+[a-z]?$ ]]; then
-                log Get version info
-                get_firmware_info build $device_rd_build_custom
-                if [ -z "$url" ]; then
-                    error Unable get url of this version
-                    exit 1
-                fi
-                device_rd_build=$device_rd_build_custom
+
+    if [[ -n $device_rd_ver ]]; then
+        get_firmware_info $device_rd_ver
+        device_target_build=$firmware_buildid
+    elif [[ -n $device_rd_ver ]] && [[ -n $ipsw_path ]]; then
+        get_firmware_info $device_rd_ver
+        if [[ $device_ipsw_build != $firmware_buildid ]]; then
+            warn "The IPSW build is different from what you defined."
+            yesno "Do you want to continue using the IPSW build?"
+            if [[ $? == 1 ]]; then
+                device_target_build=$device_ipsw_build
             else
-                log Get version info
-                get_firmware_info ver $device_rd_build_custom
-                if [ -z "$url" ]; then
-                    error Unable get url of this version
-                    pause
-                    exit 1
-                fi
-                device_rd_build=$buildid
+                return
             fi
         fi
-        if [[ -n $ipsw_path && $device_ipsw_build != $device_rd_build ]]; then
-            error You have seleted $device_ipsw_build iPSW,but you want use $device_rd_build ssh ramdisk,please seleted right ipsw or cancal choose specified version
-            exit 1
-        fi
-        tip "*Use custom version:$device_rd_build*"
-    elif [[ -n $ipsw_path ]]; then
-        device_rd_build=$device_ipsw_build
-    fi
-    if [[ -n $device_rd_build ]]; then
-        device_target_build=$device_rd_build
-        device_rd_build=
-    fi
-    version=$device_target_vers
-    build_id=$device_target_build
-    device_fw_key_check
-    if [[ -z $ipsw_path ]]; then
-        ipsw_get_url $build_id $version
-    fi
-    if [[ $arg_l != 1 ]]; then
-        ramdisk_path="../saved/$device_type/ramdisk_$build_id"
+    elif [[ $mode == "boot" ]] && [[ -z $device_rd_ver ]]; then
+        log "Enter ramdisk version"
+        read device_rd_ver
+        get_firmware_info $device_rd_ver
     else
-        ramdisk_path="../current_ramdisk"
-        if [[ -f ../current_ramdisk/build_id ]]; then
-            local_build_id=$(cat ../current_ramdisk/build_id)
-            if [[ $local_build_id != $build_id ]]; then
-                log Clean old ramdsk
-                rm -rf ../current_ramdisk
-            fi
-        fi
+        get_firmware_info $device_target_build
     fi
+    device_fw_key_check
+    ipsw_url=$firmware_url
+    version=$firmware_version
+    build_id=$device_target_build
+    print "*Ramdisk version:$version($build_id)*"
+    ramdisk_path="../saved/$device_type/ramdisk_$build_id"
+
+    
     if [[ -d $ramdisk_path ]]; then
         local ramdisk_files=("Ramdisk.dmg" "DeviceTree.dec" "Kernelcache.dec")
         for files in $ramdisk_files; do
             if [[ ! -f $ramdisk_path/$files ]]; then
-                warning "$files missed,redownload"
+                warn "$files missed,redownload"
                 pause
                 rm -rf $ramdisk_path
                 break
             fi
         done
-    fi
-    mkdir $ramdisk_path 2>/dev/null
-    if [[ $arg_l == 1 ]]; then
-        touch ../current_ramdisk/build_id
-        echo "$build_id" > "../current_ramdisk/build_id"
-    fi
-    if [[ $just_boot != 1 ]]; then
-        for getcomp in "${comps[@]}"; do
-            name=$(echo $device_fw_key | $jq -j '.keys[] | select(.image == "'$getcomp'") | .filename')
-            iv=$(echo $device_fw_key | $jq -j '.keys[] | select(.image == "'$getcomp'") | .iv')
-            key=$(echo $device_fw_key | $jq -j '.keys[] | select(.image == "'$getcomp'") | .key')
-            case $getcomp in
-                "iBSS" | "iBEC" ) path="Firmware/dfu/";;
-                "DeviceTree" )
-                    path="Firmware/all_flash/"
-                    case $build_id in
-                        14[EFG]* ) :;;
-                        * ) path="$all_flash/";;
-                    esac
-                ;;
-                * ) path="";;
-            esac
-            if [[ -z $name ]]; then
-                local hwmodel="$device_model"
-                case $build_id in
-                    14[EFG]* )
-                        case $device_type in
-                            iPhone5,[12] ) hwmodel="iphone5";;
-                            iPhone5,[34] ) hwmodel="iphone5b";;
-                            iPad3,[456] )  hwmodel="ipad3b";;
-                        esac
-                    ;;
-                    [12345789]* | 10* | 11* ) hwmodel+="ap";;
-                esac
-                case $getcomp in
-                    "iBSS" | "iBEC" ) name="$getcomp.$hwmodel.RELEASE.dfu";;
-                    "DeviceTree" )    
-                        if [[ $plist_legacy == 1 && $device_ipsw_build == 3* ]]; then
-                            name="$getcomp.${device_model}ap.img2"
-                        else
-                            name="$getcomp.${device_model}ap.img3"
-                        fi
-                        ;;
-                    "Kernelcache" ) 
-                        if [[ $plist_legacy == 1 && $device_ipsw_build == 3* ]]; then
-                            name="kernelcache.release.*"
-                        else  
-                            name="kernelcache.release.$hwmodel"
-                        fi
-                        ;;
-                esac
-            fi
-            case $getcomp in
-                "RestoreRamdisk" )
-                    case $name in
-                        *.dmg.dmg )
-                            name=$(basename $name .dmg)
-                        ;;
-                    esac
-                    ;;
-            esac
-            log "$getcomp"
-            if [[ -s $ramdisk_path/$name ]]; then
-                cp $ramdisk_path/$name .
-            elif [[ -n $ipsw_path ]]; then
-                unzip -p $ipsw_path "${path}$name" > $name
-            else
-                "$dir/pzb" -g "${path}$name" -o "$name" "$ipsw_url"
-            fi
-            if [[ ! -s $name ]]; then
-                error "Failed to get $name. Please run the script again."
-            fi
-            if [[ ! -s $ramdisk_path/$name ]]; then
-                cp $name $ramdisk_path/
-            fi
-            mv $name $getcomp.orig
-            if [[ $getcomp == "Kernelcache" || $getcomp == "iBSS" ]] && [[ $device_proc == 1 || $device_type == "iPod2,1" ]]; then
-                decrypt="-iv $iv -k $key"
-                "$dir/xpwntool" $getcomp.orig $getcomp.dec $decrypt
-            elif [[ $build_id == "14"* ]]; then
-                cp $getcomp.orig $getcomp.dec
-            else
-                "$dir/xpwntool" $getcomp.orig $getcomp.dec -iv $iv -k $key -decrypt
-            fi
-        done
-
-        log "Make RestoreRamdisk"
-        "$dir/xpwntool" RestoreRamdisk.dec Ramdisk.raw
-        if [[ $device_proc != 1 ]]; then
-            "$dir/hfsplus" Ramdisk.raw grow 30000000
-            "$dir/hfsplus" Ramdisk.raw untar ../resources/sbplist.tar
-        fi
-
-        if [[ $device_proc == 1 ]]; then
-            $bspatch Ramdisk.raw Ramdisk.patched ../resources/patch/018-6494-014.patch
-            "$dir/xpwntool" Ramdisk.patched Ramdisk.dmg -t RestoreRamdisk.dec
-            log "Make iBSS"
-            $bspatch iBSS.orig iBSS ../resources/patch/iBSS.${device_model}ap.RELEASE.patch
-            log "Make Kernelcache"
-            mv Kernelcache.dec Kernelcache0.dec
-            $bspatch Kernelcache0.dec Kernelcache.patched ../resources/patch/kernelcache.release.s5l8900x.patch
-            "$dir/xpwntool" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig $decrypt
-            rm DeviceTree.dec
-            mv DeviceTree.orig DeviceTree.dec
-        elif [[ $device_type == "iPod2,1" ]]; then
-            "$dir/hfsplus" Ramdisk.raw untar ../resources/ssh_old.tar
-            "$dir/xpwntool" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec
-            log "Make iBSS"
-            $bspatch iBSS.dec iBSS.patched ../resources/patch/iBSS.${device_model}ap.RELEASE.patch
-            "$dir/xpwntool" iBSS.patched iBSS -t iBSS.orig
-            log "Make Kernelcache"
-            mv Kernelcache.dec Kernelcache0.dec
-            $bspatch Kernelcache0.dec Kernelcache.patched ../resources/patch/kernelcache.release.${device_model}.patch
-            "$dir/xpwntool" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig $decrypt
-            rm DeviceTree.dec
-            mv DeviceTree.orig DeviceTree.dec
-        else
-            "$dir/hfsplus" Ramdisk.raw untar ../resources/ssh.tar
-            if [[ $1 == "jailbreak" && $device_vers == "8"* ]]; then
-                "$dir/hfsplus" Ramdisk.raw untar ../resources/jailbreak/daibutsu/bin.tar
-            fi
-            "$dir/hfsplus" Ramdisk.raw mv sbin/reboot sbin/reboot_bak
-            "$dir/hfsplus" Ramdisk.raw mv sbin/halt sbin/halt_bak
-            case $build_id in
-                    "12"* | "13"* | "14"* )
-                    echo '#!/bin/bash' > restored_external
-                    echo "/sbin/sshd; exec /usr/local/bin/restored_external_o" >> restored_external
-                    "$dir/hfsplus" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external_o
-                    "$dir/hfsplus" Ramdisk.raw add restored_external usr/local/bin/restored_external
-                    "$dir/hfsplus" Ramdisk.raw chmod 755 usr/local/bin/restored_external
-                    "$dir/hfsplus" Ramdisk.raw chown 0:0 usr/local/bin/restored_external
-                ;;
-            esac
-            if [[ $just_password == 1 ]]; then
-                if [[ $just_password_legacy != 1 ]]; then
-                    case $build_id in
-                            "12"* | "13"* | "14"* )
-                            "$dir/hfsplus" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external.real
-                            cp ../resources/bruteforce/setup.sh ./restored_external
-                            "$dir/hfsplus" Ramdisk.raw add restored_external usr/local/bin/restored_external
-                            "$dir/hfsplus" Ramdisk.raw chmod 755 usr/local/bin/restored_external
-                            "$dir/hfsplus" Ramdisk.raw chown 0:0 usr/local/bin/restored_external
-                        ;;
-                    esac
-                    "$dir/hfsplus" Ramdisk.raw rm usr/local/bin/restored_external.real
-                    cp ../resources/bruteforce/restored_external ./restored_external.sshrd
-                    "$dir/hfsplus" Ramdisk.raw add restored_external.sshrd usr/local/bin/restored_external.sshrd
-                    "$dir/hfsplus" Ramdisk.raw chmod 755 usr/local/bin/restored_external.sshrd
-                    cp ../resources/bruteforce/bruteforce .
-                    "$dir/hfsplus" Ramdisk.raw add bruteforce usr/bin/bruteforce
-                    "$dir/hfsplus" Ramdisk.raw chmod 755 usr/bin/bruteforce
-                    cp ../resources/bruteforce/setup.sh ./restored_external
-                    "$dir/hfsplus" Ramdisk.raw add restored_external usr/local/bin/restored_external
-                    "$dir/hfsplus" Ramdisk.raw chmod 755 usr/local/bin/restored_external
-                    "$dir/hfsplus" Ramdisk.raw chown 0:0 usr/local/bin/restored_external
-                fi
-            fi
-            "$dir/xpwntool" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec
-            log "Make iBSS"
-            "$dir/xpwntool" iBSS.dec iBSS.raw
-            if [[ $device_type == "iPad2,"* || $device_type == "iPhone3,3" ]]; then
-                case $build_id in
-                    8[FGHJKL]* | 8E600 | 8E501 ) device_boot4=1;;
-                esac
-            fi
-            if [[ $device_boot4 == 1 ]]; then
-                "$dir/iBoot32Patcher" iBSS.raw iBSS.patched --rsa --debug -b "-v amfi=0xff cs_enforcement_disable=1"
-            else
-                "$dir/iBoot32Patcher" iBSS.raw iBSS.patched --rsa --debug -b "$device_bootargs"
-            fi
-            "$dir/xpwntool" iBSS.patched iBSS -t iBSS.dec
-            if [[ $build_id == "7"* || $build_id == "8"* ]] && [[ $device_type != "iPad"* ]]; then
-                :
-            else
-                log "Make iBEC"
-                "$dir/xpwntool" iBEC.dec iBEC.raw
-                local bootarg="rd=md0 -v amfi=0xff amfi_get_out_of_my_way=1 cs_enforcement_disable=1 pio-error=0"
-                "$dir/iBoot32Patcher" iBEC.raw iBEC.patched --rsa --debug -b "$bootarg"
-                "$dir/xpwntool" iBEC.patched iBEC -t iBEC.dec
-            fi
-        fi
-
-        if [[ $device_boot4 == 1 ]]; then
-            log "Make Kernelcache"
-            mv Kernelcache.dec Kernelcache0.dec
-            "$dir/xpwntool" Kernelcache0.dec Kernelcache.raw
-            $bspatch Kernelcache.raw Kernelcache.patched ../resources/patch/kernelcache.release.${device_model}.${build_id}.patch
-            "$dir/xpwntool" Kernelcache.patched Kernelcache.dec -t Kernelcache0.dec
-        fi
-
-        mv iBSS iBEC DeviceTree.dec Kernelcache.dec Ramdisk.dmg $ramdisk_path 2>/dev/null
-
-        if [[ $device_argmode == "none" ]]; then
-            log "Done creating SSH ramdisk files: saved/$device_type/ramdisk_$build_id"
-                if [[ $arg_l == 1 ]]; then
-                    log "Use ./sshrd32 boot to boot device"
-                fi
+        if [[ -d $ramdisk_path ]]; then
+            log "Ramdisk exist"
+            ramdisk_boot
             return
         fi
-    fi
-    if [[ $ship_boot != 1 ]]; then
-        device_pwn
-        if [[ $device_type == "iPad1,1" && $build_id != "9"* ]]; then
-            patch_ibss
-            log "Sending iBSS..."
-            $irecovery -f pwnediBSS.dfu
-            sleep 2
-            log "Sending iBEC..."
-            $irecovery -f $ramdisk_path/iBEC
-        elif (( device_proc < 5 )) && [[ $device_pwnrec != 1 ]]; then
-            log "Sending iBSS..."
-            $irecovery -f $ramdisk_path/iBSS
+    elif [[ $mode == "boot" ]]; then
+        warn "Ramdisk doesn't exist"
+        yesno "Do you want to make?"
+        if [[ $? != 1 ]]; then
+            exit
         fi
+    fi  
+
+    mkdir $ramdisk_path 2>/dev/null
+
+    for getcomp in "${comps[@]}"; do
+        name=$(echo $device_fw_key | $jq -j '.keys[] | select(.image == "'$getcomp'") | .filename')
+        iv=$(echo $device_fw_key | $jq -j '.keys[] | select(.image == "'$getcomp'") | .iv')
+        key=$(echo $device_fw_key | $jq -j '.keys[] | select(.image == "'$getcomp'") | .key')
+        case $getcomp in
+            "iBSS" | "iBEC" ) path="Firmware/dfu/";;
+            "DeviceTree" )
+                path="Firmware/all_flash/"
+                case $build_id in
+                    14[EFG]* ) :;;
+                    * ) path="$all_flash/";;
+                esac
+            ;;
+            * ) path="";;
+        esac
+        if [[ -z $name ]]; then
+            local hwmodel="$device_model"
+            case $build_id in
+                14[EFG]* )
+                    case $device_type in
+                        iPhone5,[12] ) hwmodel="iphone5";;
+                        iPhone5,[34] ) hwmodel="iphone5b";;
+                        iPad3,[456] )  hwmodel="ipad3b";;
+                    esac
+                ;;
+                [12345789]* | 10* | 11* ) hwmodel+="ap";;
+            esac
+            case $getcomp in
+                "iBSS" | "iBEC" ) name="$getcomp.$hwmodel.RELEASE.dfu";;
+                "DeviceTree" )    
+                    if [[ $plist_legacy == 1 && $device_ipsw_build == 3* ]]; then
+                        name="$getcomp.${device_model}ap.img2"
+                    else
+                        name="$getcomp.${device_model}ap.img3"
+                    fi
+                    ;;
+                "Kernelcache" ) 
+                    if [[ $plist_legacy == 1 && $device_ipsw_build == 3* ]]; then
+                        name="kernelcache.release.*"
+                    else  
+                        name="kernelcache.release.$hwmodel"
+                    fi
+                    ;;
+            esac
+        fi
+        case $getcomp in
+            "RestoreRamdisk" )
+                case $name in
+                    *.dmg.dmg )
+                        name=$(basename $name .dmg)
+                    ;;
+                esac
+                ;;
+        esac
+        log "$getcomp"
+        if [[ -s $ramdisk_path/$name ]]; then
+            cp $ramdisk_path/$name .
+        elif [[ -n $ipsw_path ]]; then
+            unzip -p $ipsw_path "${path}$name" > $name
+        else
+            "$dir/pzb" -g "${path}$name" -o "$name" "$ipsw_url"
+        fi
+        if [[ ! -s $name ]]; then
+            error "Failed to get $name. Please run the script again."
+        fi
+        if [[ ! -s $ramdisk_path/$name ]]; then
+            cp $name $ramdisk_path/
+        fi
+        mv $name $getcomp.orig
+        if [[ $getcomp == "Kernelcache" || $getcomp == "iBSS" ]] && [[ $device_proc == 1 || $device_type == "iPod2,1" ]]; then
+            decrypt="-iv $iv -k $key"
+            "$dir/xpwntool" $getcomp.orig $getcomp.dec $decrypt
+        elif [[ $build_id == "14"* ]]; then
+            cp $getcomp.orig $getcomp.dec
+        else
+            "$dir/xpwntool" $getcomp.orig $getcomp.dec -iv $iv -k $key -decrypt
+        fi
+    done
+
+    log "Patch RestoreRamdisk"
+    "$dir/xpwntool" RestoreRamdisk.dec Ramdisk.raw
+    if [[ $device_proc != 1 ]]; then
+        "$dir/hfsplus" Ramdisk.raw grow 30000000
+        "$dir/hfsplus" Ramdisk.raw untar ../resources/sbplist.tar
+    fi
+
+    if [[ $device_proc == 1 ]]; then
+        $bspatch Ramdisk.raw Ramdisk.patched ../resources/patch/018-6494-014.patch
+        "$dir/xpwntool" Ramdisk.patched Ramdisk.dmg -t RestoreRamdisk.dec
+        log "Patch iBSS"
+        $bspatch iBSS.orig iBSS ../resources/patch/iBSS.${device_model}ap.RELEASE.patch
+        log "Patch Kernelcache"
+        mv Kernelcache.dec Kernelcache0.dec
+        $bspatch Kernelcache0.dec Kernelcache.patched ../resources/patch/kernelcache.release.s5l8900x.patch
+        "$dir/xpwntool" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig $decrypt
+        rm DeviceTree.dec
+        mv DeviceTree.orig DeviceTree.dec
+    elif [[ $device_type == "iPod2,1" ]]; then
+        "$dir/hfsplus" Ramdisk.raw untar ../resources/ssh_old.tar
+        "$dir/xpwntool" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec
+        log "Patch iBSS"
+        $bspatch iBSS.dec iBSS.patched ../resources/patch/iBSS.${device_model}ap.RELEASE.patch
+        "$dir/xpwntool" iBSS.patched iBSS -t iBSS.orig
+        log "Patch Kernelcache"
+        mv Kernelcache.dec Kernelcache0.dec
+        $bspatch Kernelcache0.dec Kernelcache.patched ../resources/patch/kernelcache.release.${device_model}.patch
+        "$dir/xpwntool" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig $decrypt
+        rm DeviceTree.dec
+        mv DeviceTree.orig DeviceTree.dec
+    else
+        "$dir/hfsplus" Ramdisk.raw untar ../resources/ssh.tar
+        if [[ $1 == "jailbreak" && $device_vers == "8"* ]]; then
+            "$dir/hfsplus" Ramdisk.raw untar ../resources/jailbreak/daibutsu/bin.tar
+        fi
+        "$dir/hfsplus" Ramdisk.raw mv sbin/reboot sbin/reboot_bak
+        "$dir/hfsplus" Ramdisk.raw mv sbin/halt sbin/halt_bak
+        case $build_id in
+                "12"* | "13"* | "14"* )
+                echo '#!/bin/bash' > restored_external
+                echo "/sbin/sshd; exec /usr/local/bin/restored_external_o" >> restored_external
+                "$dir/hfsplus" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external_o
+                "$dir/hfsplus" Ramdisk.raw add restored_external usr/local/bin/restored_external
+                "$dir/hfsplus" Ramdisk.raw chmod 755 usr/local/bin/restored_external
+                "$dir/hfsplus" Ramdisk.raw chown 0:0 usr/local/bin/restored_external
+            ;;
+        esac
+        "$dir/xpwntool" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec
+        log "Patch iBSS"
+        "$dir/xpwntool" iBSS.dec iBSS.raw
+        if [[ $device_type == "iPad2,"* || $device_type == "iPhone3,3" ]]; then
+            case $build_id in
+                8[FGHJKL]* | 8E600 | 8E501 ) device_boot4=1;;
+            esac
+        fi
+        if [[ $device_boot4 == 1 ]]; then
+            "$dir/iBoot32Patcher" iBSS.raw iBSS.patched --rsa --debug -b "-v amfi=0xff cs_enforcement_disable=1"
+        else
+            "$dir/iBoot32Patcher" iBSS.raw iBSS.patched --rsa --debug -b "$device_bootargs"
+        fi
+        "$dir/xpwntool" iBSS.patched iBSS -t iBSS.dec
+        if [[ $build_id == "7"* || $build_id == "8"* ]] && [[ $device_type != "iPad"* ]]; then
+            :
+        else
+            log "Patch iBEC"
+            "$dir/xpwntool" iBEC.dec iBEC.raw
+            local bootarg="rd=md0 -v amfi=0xff amfi_get_out_of_my_way=1 cs_enforcement_disable=1 pio-error=0"
+            "$dir/iBoot32Patcher" iBEC.raw iBEC.patched --rsa --debug -b "$bootarg"
+            "$dir/xpwntool" iBEC.patched iBEC -t iBEC.dec
+        fi
+    fi
+
+    if [[ $device_boot4 == 1 ]]; then
+        log "Patch Kernelcache"
+        mv Kernelcache.dec Kernelcache0.dec
+        "$dir/xpwntool" Kernelcache0.dec Kernelcache.raw
+        $bspatch Kernelcache.raw Kernelcache.patched ../resources/patch/kernelcache.release.${device_model}.${build_id}.patch
+        "$dir/xpwntool" Kernelcache.patched Kernelcache.dec -t Kernelcache0.dec
+    fi
+
+    mv iBSS iBEC DeviceTree.dec Kernelcache.dec Ramdisk.dmg $ramdisk_path 2>/dev/null
+
+    if [[ $build_id == "7"* || $build_id == "8"* ]] && [[ $device_type != "iPad"* ]]; then
+        if [[ ! -f $ramdisk_path/DeviceTree.dec ]] || [[ ! -f $ramdisk_path/Kernelcache.dec ]] || [[ ! -f $ramdisk_path/Ramdisk.dmg ]] || [[ ! -f $ramdisk_path/iBSS ]]; then
+            error "Make ramdisk failed,some files missed"
+            exit 1
+        fi
+    elif [[ ! -f $ramdisk_path/DeviceTree.dec ]] || [[ ! -f $ramdisk_path/Kernelcache.dec ]] || [[ ! -f $ramdisk_path/Ramdisk.dmg ]] || [[ ! -f $ramdisk_path/iBSS ]] || [[ ! -f $ramdisk_path/iBEC ]]; then
+        error "Make ramdisk failed,some files missed"
+        exit 1
+    fi
+    log "Done creating SSH ramdisk files: saved/$device_type/ramdisk_$build_id"
+    if [[ $device_argmode == "none" ]]; then
+        log "Use ./sshrd32.sh boot to boot ramdisk"
+        return
+    else
+        ramdisk_boot
+        return
+    fi
+}
+
+ramdisk_boot() {
+    local mode=$main_argmode
+    local mode1=$other_argmode
+    local ramdisk_path="../saved/$device_type/ramdisk_$device_target_build"
+    yesno "Do you want to boot ramdisk?"
+    if [[ $? != 1 ]]; then
+        return
+    fi
+    
+
+    device_pwn
+    if [[ $device_type == "iPad1,1" && $build_id != "9"* ]]; then
+        patch_ibss
+        log "Sending iBSS..."
+        $irecovery -f pwnediBSS.dfu
         sleep 2
-        #if [[ $build_id != "7"* && $build_id != "8"* ]]; then #someting wrong here
+        log "Sending iBEC..."
+        $irecovery -f $ramdisk_path/iBEC
+    elif (( device_proc < 5 )) && [[ $device_pwnrec != 1 ]]; then
+        log "Sending iBSS..."
+        $irecovery -f $ramdisk_path/iBSS
+    fi
+    sleep 2
+    if [[ $build_id != "7"* && $build_id != "8"* ]]; then
         if [[ $device_proc != 1 ]]; then
             log "Sending iBEC..."
             $irecovery -f $ramdisk_path/iBEC
@@ -1067,142 +1251,110 @@ ramdisk() {
                 $irecovery -c "go"
             fi
         fi
-        sleep 3
-        checkmode rec
-        log "Sending ramdisk..."
-        $irecovery -f $ramdisk_path/Ramdisk.dmg
-        log "Running ramdisk"
-        $irecovery -c "getenv ramdisk-delay"
-        $irecovery -c ramdisk
-        sleep 2
-        log "Sending DeviceTree..."
-        $irecovery -f $ramdisk_path/DeviceTree.dec
-        log "Running devicetree"
-        $irecovery -c devicetree
-        log "Sending KernelCache..."
-        $irecovery -f $ramdisk_path/Kernelcache.dec
-        $irecovery -c bootx
-        log "Booting, please wait..."
-        sleep 6
     fi
-    if [[ $just_boot == 1 ]]; then
-        log "Done,use ./sshrd32.sh ssh or ./sshrd32.sh --menu to connect device"
-        return
+    sleep 3
+    checkmode rec
+    log "Sending ramdisk..."
+    $irecovery -f $ramdisk_path/Ramdisk.dmg
+    log "Running ramdisk"
+    $irecovery -c "getenv ramdisk-delay"
+    $irecovery -c ramdisk
+    sleep 2
+    log "Sending DeviceTree..."
+    $irecovery -f $ramdisk_path/DeviceTree.dec
+    log "Running devicetree"
+    $irecovery -c devicetree
+    log "Sending KernelCache..."
+    $irecovery -f $ramdisk_path/Kernelcache.dec
+    $irecovery -c bootx
+    log "Booting, please wait..."
+    sleep 6
+
+    if [[ -n $1 ]]; then
+        device_iproxy
     else
-        if [[ -n $1 ]]; then
-            device_iproxy
-        else
-            device_iproxy no-logging
-        fi
-        local found
-        log "Waiting for device..."
-        tip "* You may need to unplug and replug your device."
-        local try=0
-        while [[ $found != 1 ]]; do
-            found=$($ssh -p $ssh_port root@127.0.0.1 "echo 1" 2>/dev/null)
-            try=$((try + 1))
-            if [[ $try == 10 ]]; then
-                error "Unable to connect SSH, please try boot again"
-                return 1
-            fi
-            sleep 2
-        done
-        if [[ $device_proc == 1 || $device_type == "iPod2,1" ]]; then
-            log "Transferring some files"
-            tar -xvf ../resources/ssh.tar ./bin/chmod ./bin/chown ./bin/cp ./bin/dd ./bin/mount.sh ./bin/tar ./usr/bin/date ./usr/bin/df ./usr/bin/du
-            $ssh -p $ssh_port root@127.0.0.1 "rm -f /bin/mount.sh /usr/bin/date"
-            $scp -P $ssh_port bin/* root@127.0.0.1:/bin
-            $scp -P $ssh_port usr/bin/* root@127.0.0.1:/usr/bin
-        fi
-        
-        if [[ $no_menu != "1" ]]; then
-            ssh_menu
-        fi
-        if [[ $just_jailbreak == 1 ]]; then
-            jailbreak_sshrd
-        elif [[ $just_get_ios_ver == 1 ]]; then
-            check_iosvers
-        elif [[ $just_hacktivate == 1 ]]; then
-            device_hacktivate
-        elif [[ $just_part2 == 1 ]]; then
-            device_hacktivate_part2
-        elif [[ $just_password == 1 ]]; then
-            if [[ $just_password_legacy != 1 ]]; then
-                log "Device should show text on screen now."
-                log "After passcode is found please use ./sshrd32.sh --reboot to reboot device"
-            else
-                device_bruteforce
-            fi
-        elif [[ $just_unblock_lock == 1 ]]; then
-            device_unblock_lock
-        fi
+        device_iproxy no-logging
     fi
+    local found
+    log "Waiting for device..."
+    print "* You may need to unplug and replug your device."
+    local try=0
+    while [[ $found != 1 ]]; do
+        found=$($ssh -p $ssh_port root@127.0.0.1 "echo 1" 2>/dev/null)
+        try=$((try + 1))
+        if [[ $try == 10 ]]; then
+            error "Unable to connect SSH, please try boot again"
+            return 1
+        fi
+        sleep 2
+    done
+    if [[ $device_proc == 1 || $device_type == "iPod2,1" ]]; then
+        log "Transferring some files"
+        tar -xvf ../resources/ssh.tar ./bin/chmod ./bin/chown ./bin/cp ./bin/dd ./bin/mount.sh ./bin/tar ./usr/bin/date ./usr/bin/df ./usr/bin/du
+        $ssh -p $ssh_port root@127.0.0.1 "rm -f /bin/mount.sh /usr/bin/date"
+        $scp -P $ssh_port bin/* root@127.0.0.1:/bin
+        $scp -P $ssh_port usr/bin/* root@127.0.0.1:/usr/bin
+    fi
+    
+    case $mode in
+        "get_ios_ver" ) check_iosvers;;
+        "jailbreak" ) jailbreak_sshrd;;
+        "hacktivate" ) device_hacktivate;;
+        "hacktivate_part2" ) device_hacktivate_part2;;
+        * ) ssh_menu;;
+    esac
+
+    if [[ $main_argmode == "exit" ]]; then
+        exit
+    else
+        lastest_enter
+    fi
+
+    return
+
 }
 
 
 lastest_enter() {
     local options=()
     local selected
-    if [[ $enable_latest_enter == 1 ]]; then
-        options+=("Go to Menu")
-        options+=("Reboot")
-        log What do you want to do at latest?
-        select_option "${options[@]}"
-        selected="${options[$?]}"
-        if [[ $selected == "Go to Menu" ]]; then
-            ssh_menu
-        else
-            $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"; exit=1
-        fi
+    options+=("Go to Menu")
+    options+=("Reboot")
+    log "What do you want to do next?"
+    select_option "${options[@]}"
+    selected="${options[$?]}"
+    if [[ $selected == "Go to Menu" ]]; then
+        ssh_menu
+    else
+        $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"; exit
     fi
 }
 
-
-main() {
-    local try
-    if [[ $debug_mode == 1 ]]; then
-        debug_func
-    fi
-    if [[ "$just_make" != "1" ]] && [[ -z "$device_type" ]]; then
-        if [[ "$ship_boot" != "1" ]]; then
-            if [[ $just_irec == 1 ]]; then
-                checkmode DFUall irec
-            elif [[ $platform == linux ]]; then
-                checkmode DFUall irec
-            else
-                checkmode DFUall
-            fi
-        fi
-    fi
-    device_info
-    ramdisk
-    if [[ $no_menu == 1 ]]; then
-        lastest_enter
-    fi
-}
 
 ssh_menu() {
     local options=()
     local selected
-    if [[ "$ship_boot" == "1" ]]; then
-        device_iproxy
-        ship_boot=
-    fi
-    if [[ $debug_mode == 1 ]]; then
+    local mode
+    device_iproxy
+    if [[ $debug == 1 ]]; then
         pause
     fi
     clear
-    tip  "*** SSHRD_Script_32Bit ***"
-    tip  "- $platform_message -"
-    tip  "- Script by MrY0000 -"
-    tip  "- Thanks LuckZGD Setup.app -"
-    tip  "- Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -"
+    print  "*** SSHRD_Script_32Bit ***"
+    print  "- $platform_message -"
+    print  "- Script by MrY0000 -"
+    print  "- Thanks LuckZGD Setup.app -"
+    print  "- Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -"
     input "Select option:"
     options+=("SSH Connection")
     options+=("Jailbreak")
     options+=("Check iOS Version")
-    options+=("Bypass(iOS5-iOS10)")
-    options+=("Brute-force password cracking(iOS7 below)")
+    options+=("Hacktivate Device")
+    options+=("Unlimited password attempts")
+    options+=("Backup Activation Files")
+    options+=("Restore Activation Files")
+    options+=("Backup Baseband Files")
+    options+=("Restore Baseband Files")
     options+=("Fix Disable")
     options+=("Clear NVRAM")
     options+=("Reboot")
@@ -1212,34 +1364,34 @@ ssh_menu() {
         case $selected in
             "SSH Connection")
                 ssh_message ; $ssh -p $ssh_port root@127.0.0.1;;
-            "Activate Device")
-                activition; pause;;
-            "Jailbreak")
-                jailbreak_sshrd;;
-            "Backup Activation Files")
-                activition_backup; pause;;
-            "Check iOS Version")
-                check_iosvers ;;
-            "Brute-force password cracking(iOS7 below)")
-                device_bruteforce; pause;;
-            "Fix Disable")
-                device_unblock_lock
-                ;;
-            "Bypass(iOS5-iOS10)")
-                device_hacktivate;;
+            "Hacktivate Device") mode="hacktivate";;
+            "Jailbreak") mode="jailbreak";;
+            "Unlimited password attempts") mode="password";;
+            "Backup Activation Files") mode="ac_bk";;
+            "Restore Activation Files") mode="ac_re";;
+            "Backup Baseband Files") mode="bb_bk";;
+            "Restore Baseband Files") mode="bb_re";;
+            "Check iOS Version") mode="check_iosvers" ;;
+            "Fix Disable") mode="fix_disable";;
+            "Bypass(iOS5-iOS10)") mode=“hacktivate”;;
             "Clear NVRAM")
                 log Clear NVRAM
                 $ssh -p $ssh_port root@127.0.0.1 "nvram -c" ; pause;;
             "Reboot")
                 log Rebooting
-                $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"; exit=1;;
-            "Exit" )
-                exit=1
-                ;;
+                $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"; main_argmode="exit";;
+            "Exit" ) main_argmode="exit" ;;
         esac
-    if [[ "$exit" != "1" ]]; then
-        ssh_menu
-    fi
+    case $mode in
+        "hacktivate" ) device_hacktivate;;
+        "jailbreak" ) jailbreak_sshrd;;
+        "password" ) device_password;;
+        "ac_bk" ) device_rebk backup ac;;
+        "ac_re" ) device_rebk restore ac;;
+        "bb_bk" ) device_rebk backup bb;;
+        "bb_re" ) device_rebk restore bb;;
+    esac
+    pause
 }
 
 ssh_message() {
@@ -1285,7 +1437,7 @@ check_iosvers() {
     fi
     if [[ -n $device_vers ]]; then
         log "Get iOS Version successfully"
-        tip "* iOS Version: $device_vers ($device_build)"
+        print "* iOS Version: $device_vers ($device_build)"
         if [[ $1 != nopause ]]; then
             pause
             return
@@ -1294,7 +1446,7 @@ check_iosvers() {
         error "Unable get iOS Version"
         if [[ $1 != nopause ]]; then
             pause
-            return
+            return 1
         fi
     fi
 }
@@ -1313,6 +1465,8 @@ jailbreak_sshrd() {
     local build
     local untether
     jelbrek=../resources/Jailbreak
+    local mode=$main_argmode
+    local mode1-$other_argmode
     device_jailbreak=1
     check_iosvers nopause
     vers=$device_vers
@@ -1325,8 +1479,8 @@ jailbreak_sshrd() {
     fi
 
     if [[ -n $($ssh -p $ssh_port root@127.0.0.1 "ls /mnt1/bin/bash 2>/dev/null") ]]; then
-        warning "Your device seems to be already jailbroken. Cannot continue."
-        if [[ $just_jailbreak == 1 ]]; then
+        warn "Your device seems to be already jailbroken. Cannot continue."
+        if [[ $mode == "jailbreak" ]]; then
             $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
         else
             pause
@@ -1366,7 +1520,7 @@ jailbreak_sshrd() {
         ;;
         3* ) [[ $device_type == "iPhone2,1" ]] && untether=1;;
         '' )
-            warning "Something wrong happened. Failed to get iOS version."
+            warn "Something wrong happened. Failed to get iOS version."
             if [[ $just_jailbreak == 1 ]]; then
                 $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
             else
@@ -1377,7 +1531,7 @@ jailbreak_sshrd() {
     esac
 
     if [[ -z $untether ]]; then
-        warning "iOS $vers is not supported for jailbreaking with SSHRD."
+        warn "iOS $vers is not supported for jailbreaking with SSHRD."
         if [[ $just_jailbreak == 1 ]]; then
             $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
         else
@@ -1453,7 +1607,188 @@ jailbreak_sshrd() {
     fi
 
     log "Jailbreak successfully✅"
-    exit=1
+    main_argmode="exit"
+}
+
+device_rebk() {
+    local mode=$1
+    local option=$2
+    local files
+    local saved
+    if [[ -z $device_ecid ]]; then
+        local device_ecid=$(date +%Y-%m-%d-%H%M)
+    fi
+    check_iosvers
+    if [[ -z $device_vers ]]; then
+        return
+    else
+        cut_os_vers $device_vers
+    fi
+    $ssh -p $ssh_port root@127.0.0.1 "umount /mnt1"
+    $ssh -p $ssh_port root@127.0.0.1 "umount /mnt2"
+    log "Mount file systems"
+    if [[ $mode == "restore" ]]; then
+        $ssh -p $ssh_port root@127.0.0.1 "mount.sh pv"
+    else
+        $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+    fi
+    case $option in
+        "ac" )
+        if [[ $mode == "restore" ]]; then
+            local tar
+            local tar_name
+            log "Restore activate files"
+            tar="$($zenity --file-selection --file-filter='TAR | *.tar' --title="Select TAR file(s)")"
+            if [[ -z $tar ]]; then
+                warn "No tar file selected."
+                return
+            fi
+            tar_name=$(basename "$tar")
+            if [[ $(tar -tf $tar | grep -c "_record.plist") == 0 ]]; then
+                warn "Activation record not found in tar"
+                yesno
+                if [[ $? != 1 ]]; then
+                    return
+                fi
+            fi
+            log "Sending $tar_name"
+            $scp -P $ssh_port $tar root@127.0.0.1:/mnt1
+            log "Extracting $tar_name"
+            $ssh -p $ssh_port root@127.0.0.1 "tar -xvf /mnt1/$tar_name -C /mnt1; rm /mnt1/$tar_name"
+            log "Done,activation files restored"
+        else
+            local dmp2="root/Library/Lockdown"
+            local new
+            case $major_ver in
+                [34567]* ) dmps="$dmp2";;
+                8* | 9.[012]* ) dmps="mobile/Library/mad";;
+                * )
+                    dmps="containers/Data/System/*/Library/activation_records"
+                    dmp2+="/activation_records"
+                    new=1
+                ;;
+            esac
+            local tmp="/mnt2/tmp"
+            local var="/mnt2"
+
+            log "Creating activation.tar"
+            $ssh -p $ssh_port root@127.0.0.1 "mkdir -p $tmp/private/var/$dmp2; cp -R /mnt2/$dmps/* $tmp/private/var/$dmp2"
+            if [[ $new == 1 ]]; then
+                $ssh -p $ssh_port ${ssh_user}@127.0.0.1 "cp /mnt2/containers/Data/System/*/Library/internal/data_ark.plist $tmp/private/var/root/Library/Lockdown"
+            fi
+
+            local actrec_files=(
+                "mobile/Media/iTunes_Control/iTunes/IC-Info.sidv"
+                "mobile/Library/FairPlay/iTunes_Control/iTunes/IC-Info.sisv"
+                "wireless/Library/Preferences/com.apple.commcenter.plist"
+            )
+            local ssh_user="root"
+            $ssh -p "$ssh_port" "${ssh_user}@127.0.0.1" "
+            mkdir -p $tmp/private/var
+            cd $tmp/private/var
+            mkdir -p \
+                mobile/Media/iTunes_Control/iTunes \
+                mobile/Library/FairPlay/iTunes_Control/iTunes \
+                mobile/Library/Preferences \
+                wireless/Library/Preferences
+
+            cd $tmp
+            for f in ${actrec_files[*]}; do
+                cp \"$var/\$f\" \"private/var/\$f\"
+            done
+
+            chown -R 501:501 private/var/mobile
+            chown -R 25:25 private/var/wireless
+
+            tar -cvf \"activation.tar\" private
+            "
+            $scp -P $ssh_port root@127.0.0.1:$tmp/activation.tar .
+            if [[ -e activation.tar ]] && [[ $(tar -tf activation.tar | grep -c "_record.plist") != 0 ]]; then
+                log "Done,activation files saved at saved/$device_type/activation-$device_type-$device_vers-$device_ecid.tar"
+                cp activation.tar ../saved/$device_type/activation-$device_type-$device_vers-$device_ecid.tar
+            else
+                warn "Activation record not found in tar. Will not save activation dump."
+                pause
+            fi
+        fi
+        ;;
+        "bb" )
+        case $device_type in
+            iPhone[45]* | iPad2,[67] | iPad3,[56] ) :;;
+            * ) log "This device has no baseband(or too old) and requires no backup or restore."; return;;
+        esac
+        if [[ $mode == "restore" ]]; then
+            local tar
+            local tar_name
+            log "Restore baseband files"
+            tar="$($zenity --file-selection --file-filter='TAR | *.tar' --title="Select TAR file(s)")"
+            if [[ -z $tar ]]; then
+                warn "No tar file selected."
+                return
+            fi
+            tar_name=$(basename "$tar")
+            if [[ $(tar -tf $tar | grep -c "bbticket.der") == 0 ]]; then
+                warn "Bbticker.der not found in tar"
+                yesno
+                if [[ $? != 1 ]]; then
+                    return
+                fi
+            fi
+            log "Sending $tar_name"
+            $scp -P $ssh_port $tar root@127.0.0.1:/mnt1
+            log "Extracting $tar_name"
+            $ssh -p $ssh_port root@127.0.0.1 "tar -xvf /mnt1/$tar_name -C /mnt1; rm /mnt1/$tar_name"
+            log "Done,baseband files restored"
+        else
+            local bb2="Mav5"
+            local root="/mnt1/"
+            local root2=
+            local tmp="/mnt2/tmp"
+            case $device_type in
+                iPhone4,1 ) bb2="Trek";;
+                iPhone5,[34] ) bb2="Mav7Mav8";;
+            esac
+            log "Creating baseband.tar"
+            case $device_vers in
+                5* ) $scp -P $ssh_port root@127.0.0.1:${root}usr/standalone/firmware/$bb2-personalized.zip .;;
+                6* ) $scp -P $ssh_port root@127.0.0.1:${root}usr/local/standalone/firmware/Baseband/$bb2/$bb2-personalized.zip .;;
+            esac
+            case $device_vers in
+                [56]* )
+                    mkdir -p usr/local/standalone/firmware/Baseband/$bb2
+                    file_extract $bb2-personalized.zip usr/local/standalone/firmware/Baseband/$bb2
+                    cp $bb2-personalized.zip usr/local/standalone/firmware/Baseband/$bb2
+                ;;
+                * )
+                    $ssh -p $ssh_port root@127.0.0.1 "cd $root; tar -cvf $tmp/baseband.tar ${root2}usr/local/standalone/firmware"
+                    $scp -P $ssh_port root@127.0.0.1:$tmp/baseband.tar .
+                    if [[ ! -s baseband.tar ]]; then
+                        error "Dumping baseband tar failed. Please run the script again" \
+                            "* If your device is on iOS 9 or newer, make sure to set the version of the SSH ramdisk correctly."
+                    fi
+                    tar -xvf baseband.tar -C .
+                    rm baseband.tar
+                    pushd usr/local/standalone/firmware/Baseband/$bb2 >/dev/null
+                    zip -r0 $bb2-personalized.zip *
+                    file_extract $bb2-personalized.zip
+                    popd >/dev/null
+                ;;
+            esac
+            if [[ $device_type == "iPhone4,1" ]]; then
+                mkdir -p usr/standalone/firmware
+                cp usr/local/standalone/firmware/Baseband/$bb2/$bb2-personalized.zip usr/standalone/firmware
+            fi
+            tar -cvf baseband-$device_ecid.tar usr
+            if [[ $(tar -tf baseband-$device_ecid.tar | grep -c "bbticket.der") != 0 ]]; then
+                cp baseband-$device_ecid.tar ../saved/$device_type/baseband-$device_type-$device_vers-$device_ecid.tar
+                log "Done,baseband files saved at saved/$device_type/baseband-$device_type-$device_vers-$device_ecid.tar"
+            else
+                warn "bbticket not found in tar. Will not save baseband dump."
+            fi
+        fi
+        ;;
+    esac
+
 }
 
 device_raw_dump() {
@@ -1514,11 +1849,11 @@ device_shsh_dump() {
     log "Converting raw dump to SHSH blob"
     "$dir/ticket" dump.raw dump.shsh "$ipsw_path.ipsw" -z
     if [[ $? != 0 ]]; then
-        warning "Saved SHSH blobs might be invalid. Did you select the correct IPSW?"
+        warn "Saved SHSH blobs might be invalid. Did you select the correct IPSW?"
         print "* If you selected the correct IPSW and the error is not APTicket and/or LLB, the blob is most likely usable."
     fi
     if [[ ! -s dump.shsh ]]; then
-        warning "Converting onboard SHSH blobs failed."
+        warn "Converting onboard SHSH blobs failed."
         return 1
     fi
     mv dump.shsh $shsh
@@ -1529,21 +1864,30 @@ device_hacktivate() {
     local ver
     local build
     local 
-    log Get iOS version
+    log "Get iOS version"
     check_iosvers
     cut_os_vers $device_vers
-    log $device_rd_build_custom
-    log Mount Filesystem
+    log "Mount Filesystem"
     $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
     if (( major_ver > 9 )); then
         local message=$($ssh -p $ssh_port root@127.0.0.1 "ls /mnt2")
         if [[ $message == "" ]]; then
-            warning "This version of ramdisk cannot mount /mnt2,please use “./sshrd32.sh --version=9.0.2 --bypass” and try again"
+            warn "This version of ramdisk cannot mount /mnt2,please use “./sshrd32.sh --version=9.0.2 --bypass” and try again"
             pause
             return
         fi
     fi
     case $device_vers in
+        [34]* )
+            log "Creat data_ark.plist"
+            echo '<plist><dict><key>com.apple.mobile.lockdown_cache-ActivationState</key><string>FactoryActivated</string></dict></plist>' > data_ark.plist
+            log "Copying data_ark.plist to device"
+            $scp -P $ssh_port data_ark.plist root@127.0.0.1:/mnt2/root/Library/Lockdown/data_ark.plist
+            log "Rebooting"
+            $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+            log "Done. Your device should reboot now"
+            main_argmode="exit"
+            ;;
         [56]* )
             if [[ -n $($ssh -p $ssh_port root@127.0.0.1 "ls /mnt1/bin/bash 2>/dev/null") ]]; then
                 log Great,this device has been jailbroken,continue
@@ -1563,19 +1907,19 @@ device_hacktivate() {
                     return
                 fi
             fi
-            log Rename orgin file
+            log "Rename orgin file"
             $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/usr/libexec/lockdownd /mnt1/usr/libexec/lockdownd.bak"
-            log Upload new file
+            log "Upload new file"
             $scp -P $ssh_port ../resources/lockdownd root@127.0.0.1:/mnt1/usr/libexec
-            log Set permissions
+            log "Set permissions"
             $ssh -p $ssh_port root@127.0.0.1 "chmod 755 /mnt1/usr/libexec/lockdownd"
-            yesno Do you want to rename Setup.app?
+            yesno "Do you want to rename Setup.app?"
             if [[ $? == 1 ]]; then
                 $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/Applications/Setup.app /mnt1/Applications/Setup.app.bak"
             fi
-            log Rebooting
+            log "Rebooting"
             $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
-            exit=1
+            main_argmode="exit"
             ;;
         [78]* | 9.[012]* )
             log "Download files"
@@ -1604,8 +1948,8 @@ device_hacktivate() {
             $ssh -p $ssh_port root@127.0.0.1 "mv /mnt1/Applications/Setup.app /mnt1/Applications/Setup.app.bak"
             log Rebooting
             $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
-            log Done
-            exit=1
+            log "Done"
+            main_argmode="exit"
             ;;
         9.3* | 10* )
             if [[ $platform == linux ]]; then
@@ -1659,10 +2003,10 @@ device_hacktivate() {
                 fi
             fi
             log "Done,part1 has been completed,use ./sshrd32.sh --bypass-part-2 to start part 2"
-            exit=1
+            main_argmode="exit"
             ;;
         * )
-            warning This iOS version is unsupport
+            warn This iOS version is unsupport
             pause Press enter to enter ssh menu
             ssh_menu
             ;;
@@ -1698,30 +2042,33 @@ device_hacktivate_part2() {
     log Rebooting
     $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
     log Done
-    exit=1
+    main_argmode="exit"
 }
 
-device_bruteforce() {
-    log Mount Filesystem
-    $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
-    log Upload files
-    $scp -P $ssh_port ../resources/bruteforce/bruteforce root@127.0.0.1:/var/root
-    $ssh -p $ssh_port root@127.0.0.1 "chmod +x bruteforce"
-    $ssh -p $ssh_port root@127.0.0.1 "./bruteforce -u"
-    log When it finished, the last one is the password.
-    pause
-    ssh_menu
-}
 
 device_unblock_lock() {
-    log Mount Filesystem
+    log "Mount Filesystem"
     $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
-    log Del some files
+    log "Del some files"
     $ssh -p $ssh_port root@127.0.0.1 "rm -rf /mnt2/mobile/Library/Preferences/com.apple.springboard.plist"
     $ssh -p $ssh_port root@127.0.0.1 "rm -rf /mnt2/mobile/Library/SpringBoard/LockoutStateJournal.plist"
-    log Rebooting
+    log "Rebooting"
     $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
-    exit=1
+    main_argmode="exit"
+}
+
+device_password() {
+    log "Mount Filesystem"
+    $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+    log "Replace com.apple.springboard.plist"
+    $ssh -p $ssh_port root@127.0.0.1 "cp /mnt2/mobile/Library/Preferences/com.apple.springboard.plist /mnt2/mobile/Library/Preferences/com.apple.springboard.plist.orig"
+    $ssh -p $ssh_port root@127.0.0.1 "rm -rf /mnt2/mobile/Library/Preferences/com.apple.springboard.plist"
+    $scp -P $ssh_port ../resources/password/com.apple.springboard.plist root@127.0.0.1:/mnt2/mobile/Library/Preferences/com.apple.springboard.plist
+    log "Done"
+    pause
+    log "Rebooting"
+    $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+    main_argmode="exit"
 }
 
 
@@ -1782,7 +2129,7 @@ get_ipsw_info() {
         fi
     fi    
     if [ -z "$ipsw_file" ]; then
-        warning Unable to get ipsw path
+        warn Unable to get ipsw path
         exit
     fi
     if [[ $device_proc == 1 || $device_proc == 4 ]] && [[ $ipsw_file == *1.* || $ipsw_file == *2.* ]]; then
@@ -1849,20 +2196,86 @@ get_ipsw_info() {
     return 0
 }
 
+
 get_firmware_info() {
     local version=
     local build=
-    buildid=
-    filesize=
-    sha1=
-    sha256=
-    md5=
-    signed=
-    releasedate=
-    uploaddate=
-    debug $device_type
+    local mode
+    firmware_version=
+    firmware_buildid=
+    firmware_filesize=
+    firmware_sha1=
+    firmware_sha256=
+    firmware_md5=
+    firmware_signed=
+    firmware_releasedate=
+    firmware_uploaddate=
+    firmware_url=
+
+    log "Get firmware info"
+    validate_build $1
+    if [[ $? != 1 ]]; then
+        mode="build"
+    else
+        mode="ver"
+    fi
+
+    #if [[ $device_type == "iPod1,1" || $device_type == "iPod2,1" ]]; then
+    #    if [[ $mode == "ver" ]] && [[ $1 == 2.* || $1 == 3.* ]]; then
+    #        if [[ ! -f $saved/invoxiplaygames.html ]]; then
+    #            log "Downloading html"
+    #            file_download https://invoxiplaygames.uk/ipsw/ temp.html
+    #            if [[ -f temp.html ]]; then
+    #                mv temp.html $saved/invoxiplaygames.html
+    #            else
+    #                error "Unable to download html"
+    #                exit 1
+    #            fi
+    #        fi
+    #        cp $saved/invoxiplaygames.html temp.html
+    #        local links=$(grep -o 'https://invoxiplaygames.uk/ipsw/[^"]*\.ipsw' temp.html)
+    #        if [[ $device_type == "iPod1,1" ]]; then
+    #            local names=$(echo "$namess" | grep 'iPod1,1')
+    #            local name=$(echo "$names" | grep $1)
+    #            firmware_url="https://invoxiplaygames.uk/ipsw/$name"
+    #        else
+    #            local names=$(echo "$namess" | grep 'iPod2,1')
+    #            local name=$(echo "$names" | grep $1)
+    #            firmware_url="https://invoxiplaygames.uk/ipsw/$name"
+    #        fi
+    #        if [[ -n $firmware_url ]]; then
+    #            return 1
+    #        fi
+    #    elif [[ $mode == "build" ]] && [[ $1 == 5* || $1 == 7* ]]; then
+    #        if [[ ! -f $saved/invoxiplaygames.html ]]; then
+    #            log "Downloading html"
+    #            file_download https://invoxiplaygames.uk/ipsw/ temp.html
+    #            if [[ -f temp.html ]]; then
+    #                mv temp.html $saved/invoxiplaygames.html
+    #            else
+    #                error "Unable to download html"
+    #                exit 1
+    #            fi
+    #        fi
+    #        cp $saved/invoxiplaygames.html temp.html
+    #        local namess=$(grep -o '[^">]*\.ipsw' temp.html)
+    #        if [[ $device_type == "iPod1,1" ]]; then
+    #            local names=$(echo "$namess" | grep 'iPod1,1')
+    #            local name=$(echo "$names" | grep $1)
+    #            firmware_url="https://invoxiplaygames.uk/ipsw/$name"
+    #        else
+    #            local names=$(echo "$namess" | grep 'iPod2,1')
+    #            local name=$(echo "$names" | grep $1)
+    #            firmware_url="https://invoxiplaygames.uk/ipsw/$name"
+    #        fi
+    #        if [[ -n $firmware_url ]]; then
+    #            return 0
+    #        fi
+    #    fi
+    #fi
+
     if [[ $device_type == "iPod1,1" || $device_type == "iPod2,1" ]]; then
-        if [[ $1 == "ver" ]] && [[ $2 == 2.* || $2 == 3.* ]]; then
+        if [[ $mode == "ver" ]] && [[ $1 == 2.* || $1 == 3.* ]]; then
             if [[ ! -f $saved/invoxiplaygames.html ]]; then
                 log "Downloading html"
                 file_download https://invoxiplaygames.uk/ipsw/ temp.html
@@ -1874,20 +2287,14 @@ get_firmware_info() {
                 fi
             fi
             cp $saved/invoxiplaygames.html temp.html
-            local links=$(grep -o 'https://invoxiplaygames.uk/ipsw/[^"]*\.ipsw' temp.html)
-            if [[ $device_type == "iPod1,1" ]]; then
-                local names=$(echo "$namess" | grep 'iPod1,1')
-                local name=$(echo "$names" | grep $2)
-                url="https://invoxiplaygames.uk/ipsw/$name"
-            else
-                local names=$(echo "$namess" | grep 'iPod2,1')
-                local name=$(echo "$names" | grep $2)
-                url="https://invoxiplaygames.uk/ipsw/$name"
+            local namess=$(grep -oE 'iPod[0-9],[0-9]_[^"]+\.ipsw' temp.html)
+            local names=$(echo "$namess" | grep "$device_type")
+            local name=$(echo "$names" | grep -E "_${1}_" | head -n 1)
+            if [[ -n $name ]]; then
+                firmware_url="https://invoxiplaygames.uk/ipsw/$name"
+                return 0
             fi
-            if [[ -n $url ]]; then
-                return  
-            fi
-        elif [[ $1 == "build" ]] && [[ $2 == 5* || $2 == 7* ]]; then
+        elif [[ $mode == "build" ]] && [[ $1 == 5* || $1 == 7* ]]; then
             if [[ ! -f $saved/invoxiplaygames.html ]]; then
                 log "Downloading html"
                 file_download https://invoxiplaygames.uk/ipsw/ temp.html
@@ -1899,30 +2306,25 @@ get_firmware_info() {
                 fi
             fi
             cp $saved/invoxiplaygames.html temp.html
-            local namess=$(grep -o '[^">]*\.ipsw' temp.html)
-            if [[ $device_type == "iPod1,1" ]]; then
-                local names=$(echo "$namess" | grep 'iPod1,1')
-                local name=$(echo "$names" | grep $2)
-                url="https://invoxiplaygames.uk/ipsw/$name"
-            else
-                local names=$(echo "$namess" | grep 'iPod2,1')
-                local name=$(echo "$names" | grep $2)
-                url="https://invoxiplaygames.uk/ipsw/$name"
-            fi
-            if [[ -n $url ]]; then
-                return  
+            local namess=$(grep -oE 'iPod[0-9],[0-9]_[^"]+\.ipsw' temp.html)
+            local names=$(echo "$namess" | grep "$device_type")
+            local name=$(echo "$names" | grep -E "_[^_]+_${1}_" | head -n 1)
+            if [[ -n $name ]]; then
+                firmware_url="https://invoxiplaygames.uk/ipsw/$name"
+                return 0
             fi
         fi
     fi
 
+
     curl -s -L "https://api.ipsw.me/v4/device/$device_type?type=ipsw" -o tmp.json
-    JSON_FILE=tmp.json
+
     if [[ ! -f "tmp.json" ]]; then
         error Unable to get json,please check internat connection
         exit
     fi
-    if [[ $1 == "ver" ]]; then
-        version=$2
+    if [[ $mode == "ver" ]]; then
+        version=$1
         if [[ "$device_type" == "iPod4,1" && "$version" == "4.1" ]]; then
             log Select version
             options=("8B117" "8B118")
@@ -1932,39 +2334,48 @@ get_firmware_info() {
             
             case $selected in
                 "8B117" ) 
-                    get_firmware_info build 8B117
+                    get_firmware_info 8B117
                     return $?
                     ;;
                 "8B118" ) 
-                    get_firmware_info build 8B118
+                    get_firmware_info 8B118
                     return $?
                     ;;
             esac
         fi
-    elif [[ $1 == "build" ]]; then
-        build=$2
+    elif [[ $mode == "build" ]]; then
+        build=$1
     fi
-    if [[ $1 == "ver" ]]; then
-        buildid=$($jq -r ".firmwares[] | select(.version == \"$version\") | .buildid" "$JSON_FILE")
-        filesize=$($jq -r ".firmwares[] | select(.version == \"$version\") | .filesize" "$JSON_FILE")
-        url=$($jq -r ".firmwares[] | select(.version == \"$version\") | .url" "$JSON_FILE")
-        sha1=$($jq -r ".firmwares[] | select(.version == \"$version\") | .sha1sum" "$JSON_FILE")
-        sha256=$($jq -r ".firmwares[] | select(.version == \"$version\") | .sha256sum" "$JSON_FILE")
-        md5=$($jq -r ".firmwares[] | select(.version == \"$version\") | .md5sum" "$JSON_FILE")
-        signed=$($jq -r ".firmwares[] | select(.version == \"$version\") | .signed" "$JSON_FILE")
-        releasedate=$($jq -r ".firmwares[] | select(.version == \"$version\") | .releasedate" "$JSON_FILE")
-        uploaddate=$($jq -r ".firmwares[] | select(.version == \"$version\") | .uploaddate" "$JSON_FILE")
-    elif [[ $1 == "build" ]]; then
-        buildid="$build"
-        filesize=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .filesize" "$JSON_FILE")
-        url=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .url" "$JSON_FILE")
-        sha1=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .sha1sum" "$JSON_FILE")
-        sha256=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .sha256sum" "$JSON_FILE")
-        md5=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .md5sum" "$JSON_FILE")
-        signed=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .signed" "$JSON_FILE")
-        releasedate=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .releasedate" "$JSON_FILE")
-        uploaddate=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .uploaddate" "$JSON_FILE")
+    if [[ $mode == "ver" ]]; then
+        firmware_version=$($jq -r ".firmwares[] | select(.version == \"$version\") | .version" "tmp.json")
+        firmware_buildid=$($jq -r ".firmwares[] | select(.version == \"$version\") | .buildid" "tmp.json")
+        firmware_filesize=$($jq -r ".firmwares[] | select(.version == \"$version\") | .filesize" "tmp.json")
+        firmware_url=$($jq -r ".firmwares[] | select(.version == \"$version\") | .url" "tmp.json")
+        firmware_sha1=$($jq -r ".firmwares[] | select(.version == \"$version\") | .sha1sum" "tmp.json")
+        firmware_sha256=$($jq -r ".firmwares[] | select(.version == \"$version\") | .sha256sum" "tmp.json")
+        firmware_md5=$($jq -r ".firmwares[] | select(.version == \"$version\") | .md5sum" "tmp.json")
+        firmware_signed=$($jq -r ".firmwares[] | select(.version == \"$version\") | .signed" "tmp.json")
+        firmware_releasedate=$($jq -r ".firmwares[] | select(.version == \"$version\") | .releasedate" "tmp.json")
+        firmware_uploaddate=$($jq -r ".firmwares[] | select(.version == \"$version\") | .uploaddate" "tmp.json")
+    elif [[ $mode == "build" ]]; then
+        firmware_version=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .version" "tmp.json")
+        firmware_buildid=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .buildid" "tmp.json")
+        firmware_filesize=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .filesize" "tmp.json")
+        firmware_url=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .url" "tmp.json")
+        firmware_sha1=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .sha1sum" "tmp.json")
+        firmware_sha256=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .sha256sum" "tmp.json")
+        firmware_md5=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .md5sum" "tmp.json")
+        firmware_signed=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .signed" "tmp.json")
+        firmware_releasedate=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .releasedate" "tmp.json")
+        firmware_uploaddate=$($jq -r ".firmwares[] | select(.buildid == \"$build\") | .uploaddate" "tmp.json")
     fi
+
+    validate_build $firmware_buildid
+    if [[ $? == 1 ]]; then
+        error "Get firmware info failed"
+        exit 1
+    fi
+
 }
 
 device_send_rdtar() {
@@ -1984,7 +2395,7 @@ device_iproxy() {
     if [[ -n $2 ]]; then
         port=$2
     fi
-    if [[ $1 == "no-logging" && $debug_mode != 1 ]]; then
+    if [[ $1 == "no-logging" && $debug != 1 ]]; then
         "$dir/iproxy" $ssh_port $port -s 127.0.0.1 >/dev/null &
         iproxy_pid=$!
     else
@@ -1995,41 +2406,6 @@ device_iproxy() {
     sleep 1
 }
 
-device_s5l8900xall() {
-    local wtf_sha="cb96954185a91712c47f20adb519db45a318c30f"
-    local wtf_saved="../saved/patches/WTF.s5l8900xall.RELEASE.dfu"
-    local wtf_patched="$wtf_saved.patched"
-    local wtf_patch="../resources/patch/WTF.s5l8900xall.RELEASE.patch"
-    local wtf_sha_local="$($sha1sum "$wtf_saved" 2>/dev/null | awk '{print $1}')"
-    mkdir ../saved 2>/dev/null
-    mkdir ../saved/patches 2>/dev/null
-    if [[ $wtf_sha_local != "$wtf_sha" ]]; then
-        log "Downloading WTF.s5l8900xall"
-        "$dir/pzb" -g "Firmware/dfu/WTF.s5l8900xall.RELEASE.dfu" -o WTF.s5l8900xall.RELEASE.dfu "http://appldnld.apple.com/iPhone/061-7481.20100202.4orot/iPhone1,1_3.1.3_7E18_Restore.ipsw"
-        rm -f "$wtf_saved"
-        mv WTF.s5l8900xall.RELEASE.dfu $wtf_saved
-    fi
-    wtf_sha_local="$($sha1sum "$wtf_saved" | awk '{print $1}')"
-    if [[ $wtf_sha_local != "$wtf_sha" ]]; then
-        error "SHA1sum mismatch. Expected $wtf_sha, got $wtf_sha_local. Please run the script again"
-    fi
-    rm -f "$wtf_patched"
-    log "Patching WTF.s5l8900xall"
-    $bspatch $wtf_saved $wtf_patched $wtf_patch
-    log "Sending patched WTF.s5l8900xall (Pwnage 2.0)"
-    $irecovery -f "$wtf_patched"
-    checkmode DFU
-    sleep 1
-    device_srtg="$($irecovery -q | grep "SRTG" | cut -c 7-)"
-    log "SRTG: $device_srtg"
-    if [[ $device_srtg == "iBoot-636.66.3x" ]]; then
-        device_argmode=
-        device_type=$($irecovery -q | grep "PRODUCT" | cut -c 10-)
-        device_model=$($irecovery -q | grep "MODEL" | cut -c 8-)
-        device_model="${device_model%??}"
-        device_pwnd="Pwnage 2.0"
-    fi
-}
 
 device_fw_key_check() {
     # check and download keys for device_target_build, then set the variable device_fw_key (or device_fw_key_base)
@@ -2167,7 +2543,8 @@ download_comp() {
     # usage: download_comp [build_id] [comp]
     local build_id="$1"
     local comp="$2"
-    ipsw_get_url $build_id
+    get_firmware_info $build_id
+    local ipsw_url=$firmware_url
     download_targetfile="$comp.$device_model"
     if [[ $build_id != "12"* ]]; then
         download_targetfile+="ap"
@@ -2220,7 +2597,7 @@ ipsw_get_url() {
         #[[ $? != 0 ]] && $curl -L "https://raw.githubusercontent.com/littlebyteorg/appledb/refs/heads/gh-pages/ios/i${phone};$build_id.json" -o tmp.json
         #url="$(cat tmp.json | $jq -r ".sources[] | select(.type == \"ipsw\" and any(.deviceMap[]; . == \"$device_type\")) | .links[0].url")"
         if [[ -z $url ]]; then
-            get_firmware_info build $build_id
+            get_firmware_info $build_id
         fi
         local url2="$(echo "$url" | tr '[:upper:]' '[:lower:]')"
         local build_id2="$(echo "$build_id" | tr '[:upper:]' '[:lower:]')"
@@ -2262,7 +2639,9 @@ file_download() {
 }
 
 ####others#####
+
 clean() {
+    exit_message
     kill $httpserver_pid $iproxy_pid $anisette_pid $sshfs_pid 2>/dev/null
     popd &>/dev/null
     rm -rf "$(dirname "$0")/tmp$$/"* "$(dirname "$0")/iP"*/ "$(dirname "$0")/tmp$$/" 2>/dev/null
@@ -2273,6 +2652,12 @@ clean() {
     fi
 }
 
+exit_message() {
+    print "* Save the terminal output now if needed. (macOS: Cmd+S, Linux: Ctrl+Shift+S)"
+    print "*Platform:$platform_message*"
+    pause "Press Enter to exit"
+}
+ 
 display_help() {
     readme="../README.md"
     if [[ ! -f $readme ]]; then
@@ -2281,17 +2666,17 @@ display_help() {
     else
         clear
     fi
-    tip  "*** SSHRD_Script_32Bit ***"
-    tip  "- $platform_message -"
-    tip  "- Script by MrY0000 -"
-    tip  "- Thanks LuckZGD Setup.app -"
-    tip  "- Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -"
+    print  "*** SSHRD_Script_32Bit ***"
+    print  "- $platform_message -"
+    print  "- Script by MrY0000 -"
+    print  "- Thanks LuckZGD Setup.app -"
+    print  "- Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -"
     print "Usage:"
-    sed -n '/^## Usage/,/^## Simplify Args/p' "$readme" | sed '$d' | tail -n +2
-    print "Simplify Args:"
-    sed -n '/^## Simplify Args/,/^## Args/p' "$readme" | sed '$d' | tail -n +2
-    print "Args:"
-    awk '/^## Args/{flag=1; next} /^## [A-Z]/{flag=0} flag' "$readme" | sed 's/^- .\/sshrd32.sh/-/'
+    sed -n '/^## Usage/,/^## Main Args/p' "$readme" | sed '$d' | tail -n +2
+    print "Main Args:"
+    sed -n '/^## Main Args/,/^## Other Args/p' "$readme" | sed '$d' | tail -n +2
+    print "Other Args:"
+    awk '/^## Other Args/{flag=1; next} /^## [A-Z]/{flag=0} flag' "$readme" | sed 's/^- .\/sshrd32.sh/-/'
 }
 
 function select_option() {
@@ -2410,119 +2795,99 @@ trap "exit 1" INT TERM
 mkdir "$(dirname "$0")/tmp$$"
 pushd "$(dirname "$0")/tmp$$" >/dev/null
 mkdir ../saved 2>/dev/null
-oscheck
-set_ssh_config
-set_path
-for i in "$@"; do
-    case "$i" in
-        --irec )
-            just_irec=1
-            ;;
-        --version=* )
-            device_rd_build_custom="${i#--version=}"
-            ;;
-        --ship-ssh-check )
-            ship_ssh_check=1
-            ;;
-        --ship-boot )
-            device_argmode=none
-            ;;
-        --ship-build-check )
-            warning Without check the build process may cause errors.
-            yesno Do you want to continue?
-            if [[ $? == 1 ]]; then
-                exit 1
-            else
-                ship_build_check=1
-            fi
-            ;;
-        --menu )
-            device_iproxy
-            without_boot=1
-            ssh_menu
-            exit
-            ;;
-        --debug )
-            debug=1
-            ;;
-        --debug-mode )
-            debug_mode=1
-            ;;
-        --make )
-            just_make=1
-            device_argmode=none
-            ;;
-        --device=* )
-           device_type="${i#--device=}"
-            ;;
-        --ipsw )
-            just_useipsw=1
-            ;;
-        --jailbreak | --jb )
-            no_menu=1
-            just_jailbreak=1
-            ;;
-        --password )
-            no_menu=1
-            just_password=1
-            log "Enter your iOS version(below iOS 6 will use simple way)"
-            read bruteforce_ver
-            cut_os_vers $bruteforce_ver
-            if (( $major_ver < 7 )); then
-                just_password_legacy=1
-            else
-                case $major_ver in
-                    7 ) device_rd_build_custom="7.1.2" ;;
-                    * ) device_rd_build_custom="9.0.2" ;;
-                esac
-                log Will use $device_rd_build_custom ramdisk
-            fi
-            ;;
-        --hacktivate | --hac | --bypass )
-            no_menu=1
-            just_hacktivate=1
-            ;;
-        --get-ios-ver )
-            just_get_ios_ver=1
-            no_menu=1
-            ;;
-        --help | -h )
-            display_help
-            exit 1
-            ;;
-         --hac-part-1 | --bypass-part-1 )
-            device_rd_build_custom=9.0.2
-            no_menu=1
-            just_part2=1
-            ;;
-         --hac-part-2 | --bypass-part-2 )
-            device_rd_build_custom=9.0.2
-            no_menu=1
-            just_part2=1
-            ;;
-        --unblock-lock )
-            no_menu=1
-            just_unblock_lock=1
-            ;;
-        --reboot )
-            device_iproxy
-            log Rebooting
-            $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
-            exit 1
-            ;;
-        --ssh | ssh )
-            device_iproxy
-            ssh_message
-            $ssh -p $ssh_port root@127.0.0.1
-            exit 1
-            ;;
-        --dump-blobs | --dump-raws )
-            log "[*] Waiting for the device to enter DFU mode"
+
+main() {
+    local try
+    local mode
+    local mode1
+    oscheck
+    set_ssh_config
+    set_path
+    for i in "$@"; do
+        case "$i" in
+            [0-9]*.[0-9]* | [0-9]*[A-Za-z][0-9]* ) device_rd_ver="$i";;
+            boot ) mode="boot";;
+            reboot ) mode="reboot";;
+            ssh ) mode="ssh";;
+            menu ) mode="menu";;
+            get-ios-ver ) mode="get_ios_ver";;
+            dump-blobs | dump-raws )
+                if [[ $i == "dump-blobs" ]]; then
+                    mode="blobs"
+                else
+                    mode="raws"
+                fi
+                ;;
+            jailbreak ) mode="jailbreak";;
+            password ) mode="password";;
+            hacktivate ) mode="hacktivate";;
+            hacktivate-part-2 ) mode="hacktivate_part2";;
+            update ) mode="update";;
+            help ) mode="help";;
+            #other options
+            --irec ) mode1="irec";;
+            --no-device )
+                device_argmode=none
+                ;;
+            --debug ) mode1="debug";;
+            --device=* ) device_type="${i#--device=}";;
+            --ipsw ) mode1="ipsw";;
+            * ) warn "Unknown command,use"./sshrd32.sh help" to use right command"; exit;;
+        esac
+    done
+    main_argmode=$mode
+    other_argmode=$mode1
+    #without device check
+    case $mode in
+        "reboot" | "ssh" | "menu" ) device_argmode=none;;
+    esac
+
+    if [[ -n $device_type ]]; then
+        device_argmode=none
+    elif [[ $mode == "help" ]]; then
+        display_help
+        exit
+    fi
+
+    if [[ $device_argmode == "none" ]] && [[ -z $device_type ]]; then
+        if [[ $mode == "menu" ]]; then
+            log "Enter your device type"
+            read device_type
+        fi
+    elif [[ $device_argmode != "none" ]]; then
+        if [[ $mode1 == "irec" ]]; then
+            checkmode DFUall irec
+        elif [[ $platform == linux ]]; then
+            checkmode DFUall irec
+        else
             checkmode DFUall
-            log "Select iPSW(Please select right ipsw,if you don't know ios version,use ./sshrd32.sh --get-ios-ver)"
-            ipsw_try123=0
+        fi
+    fi
+    
+    case $mode in
+        "ssh" | "reboot" | "menu" )
+            device_iproxy
+            if [[ $mode == "ssh" ]]; then
+                ssh_message
+                $ssh -p $ssh_port root@127.0.0.1
+            elif [[ $mode == "reboot" ]]; then
+                log "Rebooting"
+                $ssh -p $ssh_port root@127.0.0.1 "reboot_bak"
+                main_argmode="exit"
+            elif [[ $mode == "menu" ]]; then
+                ssh_menu
+            fi
+            if [[ $main_argmode == "exit" ]]; then
+                exit
+            else
+                lastest_enter
+            fi
+        ;;
+        "blobs" | "raws" )
+            log "Select iPSW(Please select right ipsw,if you don't know ios version,use ./sshrd32.sh get-ios-ver)"
+            local ipsw_try123=0
             while true; do
-                ipsw_path1="$($zenity --file-selection --multiple --file-filter='IPSW | *.ipsw' --title="Select IPSW file(s)")"
+                local ipsw_path1="$($zenity --file-selection --mulprintle --file-filter='IPSW | *.ipsw' --title="Select IPSW file(s)")"
                 ((ipsw_try123++))
                 if [[ -n "$ipsw_path1" ]]; then
                     break
@@ -2536,68 +2901,33 @@ for i in "$@"; do
             ipsw_path="${ipsw_path1%.ipsw}"
             device_info
             device_pwn
-            if [[ $i == "--dump-raws" ]]; then
+            if [[ $i == "dump-raws" ]]; then
                 device_raw_dump dump
             else
                 device_raw_dump
             fi
             exit
-            ;;
-        --update )
-            update
-            exit
-            ;;
-        #legacy part,from SSHRD
-        [0-9]*.[0-9]* )
-            arg_l=1
-            device_rd_build_custom="$i"
-            device_argmode=none
-            ;;
-        [0-9]*[A-Za-z][0-9]* )
-            arg_l=1
-            device_rd_build_custom="$i"
-            device_argmode=none
-            ;;
-        --boot | boot )
-            if [[ $i == "--boot" ]]; then
-                arg_l=0
-            else
-                arg_l=1
-            fi
-            just_boot=1
-            nomenu=1
-            ;;
-        clean )
-            if [[ -d ../current_ramdisk ]]; then
-                rm -f ../current_ramdisk
-                if [[ -d ../current_ramdisk ]]; then
-                    error Unable to delete files
-                else
-                    log Delect files successfully
-                fi
-            else
-                error "Cannot find current ramdisk,use ./sshrd32.sh [ios version/ios build version] to make ramdisk"
-            fi
-            exit
-            ;;
-        "" )
-            :
-            ;;
-        * )
-            warning Unknown command,use"./sshrd32.sh -h" to use right command
-            exit
-            ;;
+        ;;
+        "hackvate_part2" ) device_rd_ver="9.0.2";;
+    esac
+
+    device_info
+    ramdisk
+
+
+}
+
+for i in "$@"; do
+    case "$i" in
+        --debug )
+            debug_mode=1
+            menu_old=1
+            set -x
+        ;;
     esac
 done
 
-if [[ "$debug" == "1" ]]; then
-    menu_old=1
-    set -x
-fi
 
-main
+main $@
 
-if [[ $arg_l != 1 ]]; then
-    pause "Press Enter/Return to exit this script" noctrlc
-fi
 popd >/dev/null
