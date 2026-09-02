@@ -61,3 +61,4 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/) Add som
 - commit 27 fix
 - commit 28 fix sshrd32.bat
 - commit 29 rewrite the main logic of sshrd32.sh,rewrite readme
+- commit 30 fix bruteforce part,update .gitignore

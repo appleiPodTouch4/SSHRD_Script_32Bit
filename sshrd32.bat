@@ -101,6 +101,10 @@ goto main %~1
     echo [*] %*
     exit /b
 
+:input
+    echo [Input] %*
+    exit /b
+
 :clean
     popd 2>nul
     for /d %%i in ("%script_dir%tmp*") do (
@@ -119,33 +123,14 @@ goto main %~1
 
     exit /b 0
 
-:pzb
-    set "remote_url=%~1"
-    set "file_in_zip=%~2"
-    set "target_dir=%~3"
-    set "target_name=%~4"
-    set "remote_url=%remote_url:https://=http://%"
-    set "file_in_zip=%file_in_zip:\=/%"
-    call :log Downloading %file_in_zip% from "%remote_url%"
-    ::if not exist "%target_dir%" mkdir "%target_dir%"
-    ::(
-    ::    echo %file_in_zip%
-    ::    echo %target_dir%\%target_name%
-    ::) | "%pzb%" "%remote_url%" >nul
-    %pzb% -g %file_in_zip% -o %target_dir%\%target_name% %remote_url%
-    if exist "%target_dir%\%target_name%" (
-        call :log File saved at: %target_dir%\%target_name%
-        exit /b 0
-    ) else (
-        call :error Unable to download files
-        exit /b 0
-    )
 
 :zenity
-    set "selected_file="
-    set "ps_cmd=[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $g = New-Object System.Windows.Forms.OpenFileDialog; $g.Multiselect = $true; $g.Title = '%~2'; $g.Filter = '%~1'; $g.InitialDirectory = '%cd%'; if($g.ShowDialog() -eq 'OK'){ $g.FileNames }"
-    for /f "delims=" %%I in ('powershell -NoProfile -Command "%ps_cmd%"') do set "selected_file=%%I"
-    if defined selected_file (exit /b 0) else (exit /b 1)
+    ::usage:call :zenity myFile "TXT (*.txt)|*.txt|所有文件 (*.*)|*.*" "请选择一个文件"
+    set "%~1="
+    set "ps_cmd=[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $g = New-Object System.Windows.Forms.OpenFileDialog; $g.Multiselect = $true; $g.Title = '%~3'; $g.Filter = '%~2'; $g.InitialDirectory = '%cd%'; if($g.ShowDialog() -eq 'OK'){ $g.FileNames }"
+    for /f "delims=" %%I in ('powershell -NoProfile -Command "%ps_cmd%"') do set "%~1=%%I"
+    if defined %~1 (exit /b 0) else (exit /b 1)
+
 
 :set_ssh_config
     set "ssh_cmd=%ssh1%"
@@ -558,7 +543,6 @@ goto main %~1
     
     if not "!wtf_sha_local!"=="!wtf_sha!" (
         call :log "Downloading WTF.s5l8900xall..."
-        ::call :pzb "http://appldnld.apple.com/iPhone/061-7481.20100202.4orot/iPhone1,1_3.1.3_7E18_Restore.ipsw" "Firmware/dfu/WTF.s5l8900xall.RELEASE.dfu" "." WTF.s5l8900xall.RELEASE.dfu
         %pzb% -g "Firmware/dfu/WTF.s5l8900xall.RELEASE.dfu" -o "WTF.s5l8900xall.RELEASE.dfu" "http://appldnld.apple.com/iPhone/061-7481.20100202.4orot/iPhone1,1_3.1.3_7E18_Restore.ipsw"
         if exist "!wtf_saved!" del /f /q "!wtf_saved!"
         move /y "WTF.s5l8900xall.RELEASE.dfu" "!wtf_saved!" >nul

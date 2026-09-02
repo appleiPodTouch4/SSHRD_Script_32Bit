@@ -30,11 +30,11 @@ log() {
 }
 
 warn() {
-    echo "${color_Y}[warn] ${1}${color_N}"
+    echo "${color_Y}[WARN] ${1}${color_N}"
 }
 
 error() {
-    echo -e "${color_R}[Error] ${1}\n${color_Y}${*:2}${color_N}"
+    echo -e "${color_R}[ERROR] ${1}\n${color_Y}${*:2}${color_N}"
 }
 
 pause() {
@@ -245,6 +245,7 @@ set_path() {
         a6meowing=""
         gaster=""
         iBoot32Patcher=""
+        bruteforce_patcher=""
         xpwntool=""
         hfsplus=""
         pzb=""
@@ -275,6 +276,7 @@ set_path() {
         primepwn="sudo "
         gaster="sudo "
         iBoot32Patcher="sudo "
+        bruteforce_patcher="sudo "
         xpwntool="sudo "
         hfsplus="sudo "
         pzb="sudo "
@@ -303,6 +305,7 @@ set_path() {
     primepwn+=$dir/primepwn
     gaster+=$dir/gaster
     iBoot32Patcher+=$dir/iBoot32Patcher
+    bruteforce_patcher+=$dir/bruteforce_patcher
     xpwntool+=$dir/xpwntool
     hfsplus+=$dir/hfsplus
     pzb+=$dir/pzb
@@ -682,6 +685,7 @@ device_pwn() {
         case $device_proc in
             [56] ) device_send_unpacked_ibss;;
         esac
+        return
     elif [[ $device_mode == "DFU" && $device_boot4 != 1 && $device_srtg != "iBoot"* ]] &&
             [[ $device_proc == 4 || $device_proc == 5 || $device_proc == 6 ]]; then
         log "No SRTG for device in DFU mode! Already pwned iBSS mode?"
@@ -1013,7 +1017,7 @@ ramdisk() {
     build_id=$device_target_build
     print "*Ramdisk version:$version($build_id)*"
     ramdisk_path="../saved/$device_type/ramdisk_$build_id"
-
+    
     
     if [[ -d $ramdisk_path ]]; then
         local ramdisk_files=("Ramdisk.dmg" "DeviceTree.dec" "Kernelcache.dec")
@@ -1026,9 +1030,11 @@ ramdisk() {
             fi
         done
         if [[ -d $ramdisk_path ]]; then
-            log "Ramdisk exist"
-            ramdisk_boot
-            return
+            if [[ $mode != "bruteforce" ]] || [[ $mode == "bruteforce" ]] && [[ -e $ramdisk_path/KernelcacheB.dec ]] && [[ -e $ramdisk_path/RamdiskB.dmg ]]; then
+                log "Ramdisk exist"
+                ramdisk_boot
+                return
+            fi
         fi
     elif [[ $mode == "boot" ]]; then
         warn "Ramdisk doesn't exist"
@@ -1151,11 +1157,34 @@ ramdisk() {
         mv DeviceTree.orig DeviceTree.dec
     else
         "$dir/hfsplus" Ramdisk.raw untar ../resources/ssh.tar
-        if [[ $1 == "jailbreak" && $device_vers == "8"* ]]; then
+        if [[ $mode == "jailbreak" && $device_vers == "8"* ]]; then
             "$dir/hfsplus" Ramdisk.raw untar ../resources/jailbreak/daibutsu/bin.tar
         fi
         "$dir/hfsplus" Ramdisk.raw mv sbin/reboot sbin/reboot_bak
         "$dir/hfsplus" Ramdisk.raw mv sbin/halt sbin/halt_bak
+
+        if [[ $mode == "bruteforce" ]]; then
+            cp Ramdisk.raw RamdiskB.raw
+            case $build_id in
+                    "12"* | "13"* | "14"* )
+                    log "Patching restored_external..."
+                    "$dir/hfsplus" RamdiskB.raw mv usr/local/bin/restored_external usr/local/bin/restored_external.real
+                    "$dir/hfsplus" RamdiskB.raw add ../resources/bruteforce/setup.sh usr/local/bin/restored_external
+                    "$dir/hfsplus" RamdiskB.raw chmod 755 usr/local/bin/restored_external
+                    "$dir/hfsplus" RamdiskB.raw chown 0:0 usr/local/bin/restored_external
+                ;;
+            esac
+            log "Patching bruteforce"
+            "$dir/hfsplus" RamdiskB.raw add ../resources/bruteforce/restored_external usr/local/bin/restored_external.sshrd
+            "$dir/hfsplus" RamdiskB.raw chmod 755 usr/local/bin/restored_external.sshrd
+            "$dir/hfsplus" RamdiskB.raw chown 0:0 usr/local/bin/restored_external.sshrd
+            "$dir/hfsplus" RamdiskB.raw add ../resources/bruteforce/bruteforce usr/bin/bruteforce
+            "$dir/hfsplus" RamdiskB.raw chmod 755 usr/bin/bruteforce
+            "$dir/hfsplus" RamdiskB.raw chown 0:0 usr/bin/bruteforce
+            "$dir/xpwntool" RamdiskB.raw RamdiskB.dmg -t RestoreRamdisk.dec
+            cp RamdiskB.dmg $ramdisk_path 2>/dev/null
+        fi
+
         case $build_id in
                 "12"* | "13"* | "14"* )
                 echo '#!/bin/bash' > restored_external
@@ -1167,6 +1196,7 @@ ramdisk() {
             ;;
         esac
         "$dir/xpwntool" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec
+
         log "Patch iBSS"
         "$dir/xpwntool" iBSS.dec iBSS.raw
         if [[ $device_type == "iPad2,"* || $device_type == "iPhone3,3" ]]; then
@@ -1198,6 +1228,26 @@ ramdisk() {
         $bspatch Kernelcache.raw Kernelcache.patched ../resources/patch/kernelcache.release.${device_model}.${build_id}.patch
         "$dir/xpwntool" Kernelcache.patched Kernelcache.dec -t Kernelcache0.dec
     fi
+
+    if [[ $mode == "bruteforce" ]]; then
+        log "Patch Kernelcache"
+        local cpu_arch="armv7"
+        [[ $device_proc == 1 || $device_type == "iPod2,1" ]] && local cpu_arch="armv6"
+        cut_os_vers $version
+        "$dir/xpwntool" Kernelcache.dec Kernelcache.raw
+        $bruteforce_patcher Kernelcache.raw --os $major_ver --arch $cpu_arch
+        if [[ $? == 1 ]]; then
+            error "Patching kernelcache failed"
+            exit 1
+        fi
+        "$dir/xpwntool" Kernelcache.raw.patched KernelcacheB.dec -t Kernelcache.dec
+        if [[ ! -e KernelcacheB.dec ]]; then
+            error "Patching kernelcacheB.dec failed"
+            exit 1
+        fi
+        cp KernelcacheB.dec $ramdisk_path 2>/dev/null
+    fi
+    pause
 
     mv iBSS iBEC DeviceTree.dec Kernelcache.dec Ramdisk.dmg $ramdisk_path 2>/dev/null
 
@@ -1255,7 +1305,11 @@ ramdisk_boot() {
     sleep 3
     checkmode rec
     log "Sending ramdisk..."
-    $irecovery -f $ramdisk_path/Ramdisk.dmg
+    if [[ $mode == "bruteforce" ]]; then
+        $irecovery -f $ramdisk_path/RamdiskB.dmg
+    else
+        $irecovery -f $ramdisk_path/Ramdisk.dmg
+    fi
     log "Running ramdisk"
     $irecovery -c "getenv ramdisk-delay"
     $irecovery -c ramdisk
@@ -1265,7 +1319,11 @@ ramdisk_boot() {
     log "Running devicetree"
     $irecovery -c devicetree
     log "Sending KernelCache..."
-    $irecovery -f $ramdisk_path/Kernelcache.dec
+    if [[ $mode == "bruteforce" ]]; then
+        $irecovery -f $ramdisk_path/KernelcacheB.dec
+    else
+        $irecovery -f $ramdisk_path/Kernelcache.dec
+    fi
     $irecovery -c bootx
     log "Booting, please wait..."
     sleep 6
@@ -1356,6 +1414,9 @@ ssh_menu() {
     options+=("Backup Baseband Files")
     options+=("Restore Baseband Files")
     options+=("Fix Disable")
+    if [[ $device_type == iPod* ]]; then
+        options+=("Enable Battery persentage")
+    fi
     options+=("Clear NVRAM")
     options+=("Reboot")
     options+=("Exit")
@@ -1373,7 +1434,7 @@ ssh_menu() {
             "Restore Baseband Files") mode="bb_re";;
             "Check iOS Version") mode="check_iosvers" ;;
             "Fix Disable") mode="fix_disable";;
-            "Bypass(iOS5-iOS10)") mode=“hacktivate”;;
+            "Enable Battery persentage") mode="battery";;
             "Clear NVRAM")
                 log Clear NVRAM
                 $ssh -p $ssh_port root@127.0.0.1 "nvram -c" ; pause;;
@@ -1390,8 +1451,10 @@ ssh_menu() {
         "ac_re" ) device_rebk restore ac;;
         "bb_bk" ) device_rebk backup bb;;
         "bb_re" ) device_rebk restore bb;;
+        "battery") device_battery;;
     esac
     pause
+
 }
 
 ssh_message() {
@@ -1459,6 +1522,7 @@ device_datetime_cmd() {
         pause
     fi
 }
+
 
 jailbreak_sshrd() {
     local vers
@@ -2071,6 +2135,57 @@ device_password() {
     main_argmode="exit"
 }
 
+device_battery() {
+    local device=${device_model}ap
+    local deviceid=$(echo "$device" | awk '{print toupper($0)}')
+    log "Mount Filesystem"
+    $ssh -p $ssh_port root@127.0.0.1 "mount.sh"
+    check_iosvers
+    cut_os_vers $device_vers
+    if [[ $major == "9" ]] && (( minor_ver >= 3 )) || (( major_ver <= 4 )); then
+        warn "Support iOS5-9.2.1 only"
+        pause
+        return
+    elif (( major_ver >= 7 )); then
+        log "Extract com.apple.springboard.plist"
+        $scp -P $ssh_port root@127.0.0.1:/mnt2/mobile/Library/Preferences/com.apple.springboard.plist .
+        if [[ ! -e com.apple.springboard.plist ]]; then
+            error "Unale to extract com.apple.springboard.plist"
+            return
+        fi
+        log "Add keys"
+        if [[ $platform == "macos" ]]; then
+            plutil -replace SBShowBatteryLevel -bool true "com.apple.springboard.plist" 2>/dev/null || plutil -insert SBShowBatteryLevel -bool true "com.apple.springboard.plist"
+        else
+            $PlistBuddy -c "Set :SBShowBatteryLevel true" "com.apple.springboard.plist" 2>/dev/null || $PlistBuddy -c "Add :SBShowBatteryLevel bool true" "com.apple.springboard.plist"
+        fi
+        pause
+        log "Replace com.apple.springboard.plist"
+        $ssh -p $ssh_port root@127.0.0.1 "cp /mnt2/mobile/Library/Preferences/com.apple.springboard.plist /mnt2/mobile/Library/Preferences/com.apple.springboard.plist.orig"
+        $ssh -p $ssh_port root@127.0.0.1 "rm -rf /mnt2/mobile/Library/Preferences/com.apple.springboard.plist"
+        $scp -P $ssh_port com.apple.springboard.plist root@127.0.0.1:/mnt2/mobile/Library/Preferences/com.apple.springboard.plist
+        log "Done"
+    else
+        log "Extract $deviceid.plist"
+        $scp -P $ssh_port root@127.0.0.1:/mnt1/System/Library/CoreServices/SpringBoard.app/$deviceid.plist .
+        if [[ ! -e $deviceid.plist ]]; then
+            error "Unale to extract $deviceid.plist"
+            return
+        fi
+        log "Add keys"
+        if [[ $platform == "macos" ]]; then
+            plutil -replace capabilities.gas-gauge-battery -bool true $deviceid.plist && plutil -convert xml1 $deviceid.plist
+        else
+            $PlistBuddy -c "Set :capabilities:gas-gauge-battery true" $deviceid.plist 2>/dev/null || $PlistBuddy -c "Add :capabilities:gas-gauge-battery bool true" $deviceid.plist
+        fi
+        log "Replace $deviceid.plist"
+        $ssh -p $ssh_port root@127.0.0.1 "cp /mnt1/System/Library/CoreServices/SpringBoard.app/$deviceid.plist /mnt1/System/Library/CoreServices/SpringBoard.app/$deviceid.plist.orig"
+        $ssh -p $ssh_port root@127.0.0.1 "rm -rf /mnt1/System/Library/CoreServices/SpringBoard.app/$deviceid.plist"
+        $scp -P $ssh_port $deviceid.plist root@127.0.0.1:/mnt1/System/Library/CoreServices/SpringBoard.app/$deviceid.plist
+        log "Done"
+    fi
+}
+
 
 ###tools###
 
@@ -2219,60 +2334,6 @@ get_firmware_info() {
     else
         mode="ver"
     fi
-
-    #if [[ $device_type == "iPod1,1" || $device_type == "iPod2,1" ]]; then
-    #    if [[ $mode == "ver" ]] && [[ $1 == 2.* || $1 == 3.* ]]; then
-    #        if [[ ! -f $saved/invoxiplaygames.html ]]; then
-    #            log "Downloading html"
-    #            file_download https://invoxiplaygames.uk/ipsw/ temp.html
-    #            if [[ -f temp.html ]]; then
-    #                mv temp.html $saved/invoxiplaygames.html
-    #            else
-    #                error "Unable to download html"
-    #                exit 1
-    #            fi
-    #        fi
-    #        cp $saved/invoxiplaygames.html temp.html
-    #        local links=$(grep -o 'https://invoxiplaygames.uk/ipsw/[^"]*\.ipsw' temp.html)
-    #        if [[ $device_type == "iPod1,1" ]]; then
-    #            local names=$(echo "$namess" | grep 'iPod1,1')
-    #            local name=$(echo "$names" | grep $1)
-    #            firmware_url="https://invoxiplaygames.uk/ipsw/$name"
-    #        else
-    #            local names=$(echo "$namess" | grep 'iPod2,1')
-    #            local name=$(echo "$names" | grep $1)
-    #            firmware_url="https://invoxiplaygames.uk/ipsw/$name"
-    #        fi
-    #        if [[ -n $firmware_url ]]; then
-    #            return 1
-    #        fi
-    #    elif [[ $mode == "build" ]] && [[ $1 == 5* || $1 == 7* ]]; then
-    #        if [[ ! -f $saved/invoxiplaygames.html ]]; then
-    #            log "Downloading html"
-    #            file_download https://invoxiplaygames.uk/ipsw/ temp.html
-    #            if [[ -f temp.html ]]; then
-    #                mv temp.html $saved/invoxiplaygames.html
-    #            else
-    #                error "Unable to download html"
-    #                exit 1
-    #            fi
-    #        fi
-    #        cp $saved/invoxiplaygames.html temp.html
-    #        local namess=$(grep -o '[^">]*\.ipsw' temp.html)
-    #        if [[ $device_type == "iPod1,1" ]]; then
-    #            local names=$(echo "$namess" | grep 'iPod1,1')
-    #            local name=$(echo "$names" | grep $1)
-    #            firmware_url="https://invoxiplaygames.uk/ipsw/$name"
-    #        else
-    #            local names=$(echo "$namess" | grep 'iPod2,1')
-    #            local name=$(echo "$names" | grep $1)
-    #            firmware_url="https://invoxiplaygames.uk/ipsw/$name"
-    #        fi
-    #        if [[ -n $firmware_url ]]; then
-    #            return 0
-    #        fi
-    #    fi
-    #fi
 
     if [[ $device_type == "iPod1,1" || $device_type == "iPod2,1" ]]; then
         if [[ $mode == "ver" ]] && [[ $1 == 2.* || $1 == 3.* ]]; then
@@ -2820,6 +2881,7 @@ main() {
                 ;;
             jailbreak ) mode="jailbreak";;
             password ) mode="password";;
+            bruteforce ) mode="bruteforce";;
             hacktivate ) mode="hacktivate";;
             hacktivate-part-2 ) mode="hacktivate_part2";;
             update ) mode="update";;
@@ -2853,6 +2915,7 @@ main() {
         if [[ $mode == "menu" ]]; then
             log "Enter your device type"
             read device_type
+            device_info
         fi
     elif [[ $device_argmode != "none" ]]; then
         if [[ $mode1 == "irec" ]]; then
