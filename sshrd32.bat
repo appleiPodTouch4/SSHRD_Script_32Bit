@@ -14,7 +14,7 @@ set "PID=%PID: =%"
 
 md "%script_dir%tmp%PID%" 2>nul
 pushd "%script_dir%tmp%PID%" 2>nul
-
+set "ipsw_openssh=1"
 set "dir=..\bin\windows"
 set "saved=..\saved"
 set "resources=..\resources"
@@ -76,7 +76,14 @@ goto main %~1
         call :ssh_check
         call :menu
         exit /b
+    ) else if "%~1"=="reboot" (
+        call :device_iproxy
+        call :ssh_check
+        call :log "Rebooting"
+        %ssh% -p !ssh_port! root@127.0.0.1 "reboot_bak"
+        exit /b
     )
+
     call :checkmode "DFU"
     call :device_info
     echo %device_model%
@@ -86,24 +93,44 @@ goto main %~1
 
 
 :log
-    echo [Log] %*
-    exit /b
+    set "_tag=Log"
+    goto :_do_emit
 
 :error
-    echo [ERROR] %*
-    exit /b
+    set "_tag=ERROR"
+    goto :_do_emit
 
 :warn
-    echo [WARNING] %*
-    exit /b
+    set "_tag=WARNING"
+    goto :_do_emit
 
 :print
-    echo [*] %*
+    set "_tag=*"
+    goto :_do_emit
+
+REM :_do_emit - shared body for :log/:error/:warn/:print
+REM Builds msg from all positional args via a shift loop using delayed
+REM expansion, so messages containing "|" are NOT re-parsed by cmd as a
+REM pipe. Strips outer quotes via delayed-expansion substitution, then
+REM emits as [!_tag!] <msg>.
+:_do_emit
+    setlocal enabledelayedexpansion
+    set "msg="
+    :_do_emit_loop
+    if "%~1"=="" goto :_do_emit_done
+    if defined msg (
+        set "msg=!msg!%~1 "
+    ) else (
+        set "msg=%~1"
+    )
+    shift
+    goto :_do_emit_loop
+    :_do_emit_done
+    set "msg=!msg:"=!"
+    echo [!_tag!] !msg!
+    endlocal
     exit /b
 
-:input
-    echo [Input] %*
-    exit /b
 
 :clean
     popd 2>nul
@@ -125,12 +152,10 @@ goto main %~1
 
 
 :zenity
-    ::usage:call :zenity myFile "TXT (*.txt)|*.txt|所有文件 (*.*)|*.*" "请选择一个文件"
-    set "%~1="
-    set "ps_cmd=[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $g = New-Object System.Windows.Forms.OpenFileDialog; $g.Multiselect = $true; $g.Title = '%~3'; $g.Filter = '%~2'; $g.InitialDirectory = '%cd%'; if($g.ShowDialog() -eq 'OK'){ $g.FileNames }"
-    for /f "delims=" %%I in ('powershell -NoProfile -Command "%ps_cmd%"') do set "%~1=%%I"
-    if defined %~1 (exit /b 0) else (exit /b 1)
-
+    set "selected_file="
+    set "ps_cmd=[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $g = New-Object System.Windows.Forms.OpenFileDialog; $g.Multiselect = $true; $g.Title = '%~2'; $g.Filter = '%~1'; $g.InitialDirectory = '%cd%'; if($g.ShowDialog() -eq 'OK'){ $g.FileNames }"
+    for /f "delims=" %%I in ('powershell -NoProfile -Command "%ps_cmd%"') do set "selected_file=%%I"
+    if defined selected_file (exit /b 0) else (exit /b 1)
 
 :set_ssh_config
     set "ssh_cmd=%ssh1%"
@@ -151,7 +176,7 @@ goto main %~1
         if "%found%"=="0" (
             findstr /c:"SSH_6" "%temp%\ssh_ver.txt" >nul
             if %errorlevel% equ 0 (
-                type "..\resources\ssh_config" | sed "s/Add/#Add/g" | sed "s/HostKeyA/#HostKeyA/g" > ".\ssh_config"
+                type "..\resources\ssh_config" | %sed% "s/Add/#Add/g" | %sed% "s/HostKeyA/#HostKeyA/g" > ".\ssh_config"
             )
         )
         del "%temp%\ssh_ver.txt"
@@ -172,7 +197,7 @@ goto main %~1
     if not defined wait_timeout set "wait_timeout=0"
     set /a wait_secs=0
     if /i "%~1"=="nor" (
-        call :log Waiting for the device to enter Normal mode
+        call :log "Waiting for the device to enter Normal mode"
         :loop_nor
         set "device_ver="
         for /f "delims=" %%i in ('cmd /c ""%ideviceinfo%" -s 2^>nul | "%grep%" "ProductVersion:" | "%cut%" -d" " -f2"') do (
@@ -191,7 +216,7 @@ goto main %~1
     if /i "%~1"=="DFUall" set "mode=DFU"
 
     if defined mode (
-        call :log Waiting for the device to enter !mode! mode
+        call :log "Waiting for the device to enter !mode! mode"
         :loop_mode
             set "device_mode="
             for /f "delims=" %%i in ('cmd /c ""%irecovery%" -q 2^>nul | "%grep%" -w "MODE" | "%cut%" -c 7-"') do (
@@ -212,11 +237,11 @@ goto main %~1
             if !wait_timeout! GTR 0 (
                 set /a wait_secs+=1
                 if !wait_secs! GEQ !wait_timeout! (
-                    call :error Timed out waiting for !mode! mode.
+                    call :error "Timed out waiting for !mode! mode."
                     exit /b 1
                 )
             )
-            :: ????????????? 1 ???
+
             timeout /t 1 /nobreak >nul
             goto loop_mode
     )
@@ -290,7 +315,7 @@ goto main %~1
     if "!device_type!"=="iPod5,1" set "device_model=n78"
 
     if not defined device_model (
-        call :error Unsupport for 64Bit device
+        call :error "Unsupport for 64Bit device"
         exit /b 1
     )
 
@@ -342,7 +367,7 @@ goto main %~1
     set "port=22"
     if not "%~2"=="" set "port=%~2"
     TASKKILL /F /IM iproxy.exe >nul 2>&1
-    call :log Running iproxy for SSH...
+    call :log "Running iproxy for SSH..."
 
     if "%~1"=="no-logging" (
         if not "%debug_mode%"=="1" (
@@ -369,7 +394,7 @@ goto main %~1
     
     set "device_fw_dir=..\saved\%device_type%\%build%"
     set "keys_path=."
-    call :log Checking firmware keys
+    call :log "Checking firmware keys"
     
     set "match_found=0"
     if exist "%keys_path%\index.html" (
@@ -493,22 +518,22 @@ goto main %~1
     setlocal enabledelayedexpansion
     powershell -Command "Get-PnpDevice -Present:$false | Where-Object { $_.FriendlyName -like '*Apple Mobile Device*' } | ForEach-Object { pnputil /remove-device $_.InstanceId }" >nul 2>&1
     for /f "delims=" %%x in ('%irecovery% -q 2^>nul ^| %grep% "CPID:" ^| %gawk% -F"0x" "{print $2}"') do set CPID=%%x
-    call :log Getting device info and pwning... this may take a second
+    call :log "Getting device info and pwning... this may take a second"
     if %device_proc%==5 (
-        call :warn pwn a5 device needs Arduino+USB Host Shield or Pi Pico
-        call :log when you have been pwned,press enter to continue
+        call :warn "pwn a5 device needs Arduino+USB Host Shield or Pi Pico"
+        call :log "when you have been pwned,press enter to continue"
         pause
         for /f "delims=" %%x in ('%irecovery% -q 2^>nul ^| %grep% "PWND:" ^| %gawk% -F" " "{print $2}"') do set "PWND=%%x"
         if "!PWND!"=="" (
-            call :warn Pwn your device first
+            call :warn "Pwn your device first"
             pause
             exit /b 1
         )
         %primepwn% %resources%\Firmwaredfu\ibss\%device_type%
         if %ERRORLEVEL% equ 0 (
-            call :log Device has been pwned
+            call :log "Device has been pwned?"
         ) else (
-            call :error Unable to pwn device
+            call :error "Unable to pwn device?"
         )
     ) else if %device_proc%==1 (
         exit /b
@@ -516,11 +541,11 @@ goto main %~1
         %primepwn%
         for /f "delims=" %%x in ('%irecovery% -q 2^>nul ^| %grep% "PWND:" ^| %gawk% -F" " "{print $2}"') do set "PWND=%%x"
         if "!PWND!"=="" (
-            call :error Unable to pwn device
+            call :error "Unable to pwn device"
             pause
             exit /b 1
         ) else (
-            call :log Device has been pwned
+            call :log "Device has been pwned"
         )
     )
 
@@ -553,16 +578,16 @@ goto main %~1
     if "!wtf_sha_local:~0,1!"=="\" set "wtf_sha_local=!wtf_sha_local:~1!"
 
     if not "!wtf_sha_local!"=="!wtf_sha!" (
-        call :error SHA1sum mismatch. Expected !wtf_sha!, got !wtf_sha_local!. Please run the script again
+        call :error "SHA1sum mismatch. Expected !wtf_sha!, got !wtf_sha_local!. Please run the script again"
         exit /b 1
     )
     
     if exist "!wtf_patched!" del /f /q "!wtf_patched!"
     
-    call :log Patching WTF.s5l8900xall...
+    call :log "Patching WTF.s5l8900xall..."
     "%dir%\bspatch" "!wtf_saved!" "!wtf_patched!" "!wtf_patch!"
     
-    call :log Sending patched WTF.s5l8900xall (Pwnage 2.0)...
+    call :log "Sending patched WTF.s5l8900xall (Pwnage 2.0)..."
     "%irecovery%" -f "!wtf_patched!"
     
     call :checkmode DFU
@@ -571,7 +596,7 @@ goto main %~1
     set "device_srtg="
     for /f "tokens=2 delims=: " %%a in ('""%irecovery%" -q | "%grep%" "SRTG""') do set "device_srtg=%%a"
     
-    call :log SRTG: !device_srtg!
+    call :log "SRTG: !device_srtg!"
     
     if "!device_srtg!"=="iBoot-636.66.3x" (
         set "device_argmode="
@@ -623,6 +648,7 @@ goto main %~1
     copy /y pwnediBSS.dfu_!build_id! "..\saved\!device_type!\" >nul
 
     call :log "Pwned iBSS saved at: saved/!device_type!/pwnediBSS_!build_id!"
+    
     call :log "Pwned iBSS img3 saved at: saved/!device_type!/pwnediBSS_!build_id!.dfu"
     exit /b
 
@@ -674,8 +700,8 @@ goto main %~1
         set "device_target_vers=%~1"
     )
     set "version=!device_target_vers!"
-    call :print Ramdisk version:!device_target_vers!
-    call :log Check version info
+    call :print "Ramdisk version:!device_target_vers!"
+    call :log "Check version info"
 
     if "!version!"=="" (
         call :get_firmware_info build !device_target_build!
@@ -704,7 +730,7 @@ goto main %~1
     if "!files_missing!"=="1" (
         rd /s /q "!ramdisk_path!" 2>nul
     ) else (
-        call :log Make ramdisk successfully
+        call :log "Make ramdisk successfully"
         call :ramdisk_boot
         exit /b 0
     )
@@ -751,7 +777,7 @@ goto main %~1
             if "!getcomp!"=="Kernelcache" set "name=kernelcache.release.!hwmodel!"
         )
 
-        call :log !getcomp!
+        call :log "!getcomp!"
         if exist "!ramdisk_path!\!name!" (
             copy /y "!ramdisk_path!\!name!" . >nul
         ) else (
@@ -795,7 +821,7 @@ goto main %~1
         )
     )
 
-    call :log Patch RestoreRamdisk
+    call :log "Patch RestoreRamdisk"
     cmd /c ""%xpwntool%" RestoreRamdisk.dec Ramdisk.raw"
     if !device_proc! NEQ 1 (
         cmd /c ""%hfsplus%" Ramdisk.raw grow 30000000"
@@ -805,9 +831,9 @@ goto main %~1
     if !device_proc! EQU 1 (
         cmd /c ""%dir%\bspatch.exe" Ramdisk.raw Ramdisk.patched ..\resources\patch\018-6494-014.patch"
         cmd /c ""%xpwntool%" Ramdisk.patched Ramdisk.dmg -t RestoreRamdisk.dec"
-        call :log Patch iBSS
+        call :log "Patch iBSS"
         cmd /c ""%dir%\bspatch.exe" iBSS.orig iBSS ..\resources\patch\iBSS.!device_model!ap.RELEASE.patch"
-        call :log Patch Kernelcache
+        call :log "Patch Kernelcache"
         move /y Kernelcache.dec Kernelcache0.dec >nul
         cmd /c ""%dir%\bspatch.exe" Kernelcache0.dec Kernelcache.patched ..\resources\patch\kernelcache.release.s5l8900x.patch"
         cmd /c ""%xpwntool%" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig -iv !iv! -k !key!"
@@ -816,10 +842,10 @@ goto main %~1
     ) else if "!device_type!"=="iPod2,1" (
         cmd /c ""%hfsplus%" Ramdisk.raw untar ..\resources\ssh_old.tar"
         cmd /c ""%xpwntool%" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec"
-        call :log Patch iBSS
+        call :log "Patch iBSS"
         cmd /c ""%dir%\bspatch.exe" iBSS.dec iBSS.patched ..\resources\patch\iBSS.!device_model!ap.RELEASE.patch"
         cmd /c ""%xpwntool%" iBSS.patched iBSS -t iBSS.orig"
-        call :log Patch Kernelcache
+        call :log "Patch Kernelcache"
         move /y Kernelcache.dec Kernelcache0.dec >nul
         cmd /c ""%dir%\bspatch.exe" Kernelcache0.dec Kernelcache.patched ..\resources\patch\kernelcache.release.!device_model!.patch"
         cmd /c ""%xpwntool%" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig -iv !iv! -k !key!"
@@ -843,32 +869,10 @@ goto main %~1
             cmd /c ""%hfsplus%" Ramdisk.raw chown 0:0 usr/local/bin/restored_external"
         )
         
-        if "!just_password!"=="1" (
-            if "!just_password_legacy!" NEQ "1" (
-                echo !build_id!| findstr /r "^12 ^13 ^14" >nul
-                if !errorlevel! EQU 0 (
-                    cmd /c ""%hfsplus%" Ramdisk.raw mv usr/local/bin/restored_external usr/local/bin/restored_external.real"
-                    copy /y ..\resources\bruteforce\setup.sh .\restored_external >nul
-                    cmd /c ""%hfsplus%" Ramdisk.raw add restored_external usr/local/bin/restored_external"
-                    cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external"
-                    cmd /c ""%hfsplus%" Ramdisk.raw chown 0:0 usr/local/bin/restored_external"
-                )
-                cmd /c ""%hfsplus%" Ramdisk.raw rm usr/local/bin/restored_external.real"
-                copy /y ..\resources\bruteforce\restored_external .\restored_external.sshrd >nul
-                cmd /c ""%hfsplus%" Ramdisk.raw add restored_external.sshrd usr/local/bin/restored_external.sshrd"
-                cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external.sshrd"
-                copy /y ..\resources\bruteforce\bruteforce . >nul
-                cmd /c ""%hfsplus%" Ramdisk.raw add bruteforce usr/bin/bruteforce"
-                cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/bin/bruteforce"
-                copy /y ..\resources\bruteforce\setup.sh .\restored_external >nul
-                cmd /c ""%hfsplus%" Ramdisk.raw add restored_external usr/local/bin/restored_external"
-                cmd /c ""%hfsplus%" Ramdisk.raw chmod 755 usr/local/bin/restored_external"
-                cmd /c ""%hfsplus%" Ramdisk.raw chown 0:0 usr/local/bin/restored_external"
-            )
-        )
+        
         cmd /c ""%xpwntool%" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec"
 
-        call :log Patch iBSS
+        call :log "Patch iBSS"
         cmd /c ""%xpwntool%" iBSS.dec iBSS.raw"
         set "device_boot4=0"
         if "!device_type:~0,5!"=="iPad2" ( set "is_ipad2=1" ) else ( set "is_ipad2=0" )
@@ -884,14 +888,14 @@ goto main %~1
         )
         cmd /c ""%xpwntool%" iBSS.patched iBSS -t iBSS.dec"
         
-        call :log Patch iBEC
+        call :log "Patch iBEC"
         cmd /c ""%xpwntool%" iBEC.dec iBEC.raw"
         cmd /c ""%iBoot32Patcher%" iBEC.raw iBEC.patched --rsa --debug -b "rd=md0 -v amfi=0xff amfi_get_out_of_my_way=1 cs_enforcement_disable=1 pio-error=0""
         cmd /c ""%xpwntool%" iBEC.patched iBEC -t iBEC.dec"
     )
 
     if !device_boot4! EQU 1 (
-        call :log Patch Kernelcache
+        call :log "Patch Kernelcache"
         move /y Kernelcache.dec Kernelcache0.dec >nul
         cmd /c ""%xpwntool%" Kernelcache0.dec Kernelcache.raw"
         cmd /c ""%dir%\bspatch.exe" Kernelcache.raw Kernelcache.patched ..\resources\patch\kernelcache.release.!device_model!.!build_id!.patch"
@@ -907,21 +911,21 @@ goto main %~1
 :ramdisk_boot
     if "!device_argmode!"=="none" (
         if !device_proc!=="6" (
-            call :warn A6 device does not support boot,please waiting for update
+            call :warn "A6 device does not support boot,please waiting for update"
         )
-        call :print Done creating SSH ramdisk files: saved/!device_type!/ramdisk_!build_id!
+        call :print "Done creating SSH ramdisk files: saved/!device_type!/ramdisk_!build_id!"
         exit /b
     )
     call :yesno "Do you want to boot?"
     if "!yesno!"=="0" (
-        call :print Done creating SSH ramdisk files: saved/!device_type!/ramdisk_!build_id!
+        call :print "Done creating SSH ramdisk files: saved/!device_type!/ramdisk_!build_id!"
         exit /b
     ) else (
-        call :print Done creating SSH ramdisk files: saved/!device_type!/ramdisk_!build_id!
+        call :print "Done creating SSH ramdisk files: saved/!device_type!/ramdisk_!build_id!"
     )
 
     if "!device_proc!"=="4" if "!build_id:~0,1!" GEQ "7" if "!build_id:~0,1!" LSS "9" (
-        call :warn Boot iOS 3 or 4 ramdisk may cause boot loop
+        call :warn "Boot iOS 3 or 4 ramdisk may cause boot loop"
         call :yesno
         if !yesno!=="0" (
             exit /b
@@ -939,15 +943,15 @@ goto main %~1
         echo !build_id!| findstr /r "^9" >nul
         if !errorlevel! NEQ 0 (
             call :patch_ibss
-            call :print Sending iBSS...
+            call :print "Sending iBSS..."
             %irecovery% -f pwnediBSS.dfu
             timeout /t 2 >nul
-            call :print Sending iBEC...
+            call :print "Sending iBEC..."
             %irecovery% -f "!ramdisk_path!\iBEC"
         )
     ) else if !device_proc! LSS 5 (
         if "!device_pwnrec!" NEQ "1" (
-            call :print Sending iBSS...
+            call :print "Sending iBSS..."
             %irecovery% -f "!ramdisk_path!\iBSS"
         )
     )
@@ -957,33 +961,33 @@ goto main %~1
     if !device_proc! EQU 1 set "is_old_proc=1"
     if "!device_type!"=="iPod2,1" set "is_old_proc=1"
     if !is_old_proc! NEQ 1 (
-        call :print Sending iBEC...
+        call :print "Sending iBEC..."
         %irecovery% -f "!ramdisk_path!\iBEC"
         if "!device_pwnrec!"=="1" (
             %irecovery% -c "go"
         )
     )
     call :checkmode rec 20
-    call :print Sending ramdisk...
+    call :print "Sending ramdisk..."
     "%irecovery%" -f "!ramdisk_path!\Ramdisk.dmg"
-    call :print Running ramdisk
+    call :print "Running ramdisk"
     %irecovery% -c "getenv ramdisk-delay"
     %irecovery% -c "ramdisk"
     timeout /T 1 /NOBREAK > nul 2>&1
-    call :print Sending DeviceTree...
+    call :print "Sending DeviceTree..."
     "%irecovery%" -f "!ramdisk_path!\DeviceTree.dec"
-    call :print Running devicetree
+    call :print "Running devicetree"
     %irecovery% -c "devicetree"
     timeout /T 1 /NOBREAK > nul 2>&1
-    call :print Sending KernelCache...
+    call :print "Sending KernelCache..."
     "%irecovery%" -f "!ramdisk_path!\Kernelcache.dec"
     %irecovery% -c "bootx"
 
-    call :log Booting, please wait...
+    call :log "Booting, please wait..."
     timeout /t 6 >nul
 
     if "!just_boot!"=="1" (
-        call :log Done, use script to connect device
+        call :log "Done, use script to connect device"
         endlocal
         exit /b 0
     ) else (
@@ -994,8 +998,8 @@ goto main %~1
         )
         
         set "found="
-        call :log Waiting for device...
-        call :log You may need to unplug and replug your device.
+        call :log "Waiting for device..."
+        call :log "You may need to unplug and replug your device."
         set /a try_cnt=0
     )
     call :ssh_check
@@ -1011,7 +1015,7 @@ goto main %~1
         if "!device_type!"=="iPod2,1" set "do_trans=1"
 
         if !do_trans! EQU 1 (
-            call :log Transferring some files
+            call :log "Transferring some files"
             cmd /c ""%dir%\tar.exe" -xvf ..\resources\ssh.tar ./bin/chmod ./bin/chown ./bin/cp ./bin/dd ./bin/mount.sh ./bin/tar ./usr/bin/date ./usr/bin/df ./usr/bin/du"
             %ssh% -p !ssh_port! root@127.0.0.1 rm -f /bin/mount.sh /usr/bin/date
             cmd /c "%scp% -P !ssh_port! bin/* root@127.0.0.1:/bin"
@@ -1021,7 +1025,7 @@ goto main %~1
     )
 
     if !try_cnt! EQU 10 (
-        call :error Unable to connect SSH, please try boot again
+        call :error "Unable to connect SSH, please try boot again"
         endlocal
         exit /b 1
     )
@@ -1048,16 +1052,28 @@ goto main %~1
 :menu
     setlocal enabledelayedexpansion
     cls
+    set "options="
     echo *** SSHRD_Script_32Bit ***
     echo - Script by MrY0000 -
     echo - Thanks LuckZGD Setup.app -
     echo - Forked from Legacy-iOS-Kit(https://github.com/LukeZGD/Legacy-iOS-Kit) -
     echo Select option:
-    set "options=SSH Connection"
-    set "options=!options! Exit"
-    call :select_option "menu_select" "SSH Connection" "Exit"
+    set "options="SSH Connection""
+    set "options=!options! "Check iOS version""
+    set "options=!options! "Jailbreak""
+    set "options=!options! "Reboot""
+    set "options=!options! "Exit""
+    call :select_option "menu_select" !options!
     if "!selected!"=="SSH Connection" (
         call :ssh_message
+    ) else if "!selected!"=="Jailbreak" (
+        call :jailbreak
+    ) else if "!selected!"=="Check iOS version" (
+        call :check_iosvers
+    ) else if "!selected!"=="Reboot" (
+        call :log "Rebooting"
+        %ssh% -p !ssh_port! root@127.0.0.1 "reboot_bak"
+        exit /b 0
     ) else if "!selected!"=="Exit" (
         set exit="1"
         exit /b 0
@@ -1067,12 +1083,272 @@ goto main %~1
     )
     exit /b 0
 
+::####functions#####
+
+:check_iosvers
+    call :log "Mounting root filesystem"
+    %ssh% -p !ssh_port! root@127.0.0.1 mount.sh root
+    timeout /T 1 /NOBREAK > nul 2>&1
+
+    call :log "Getting iOS version"
+    if exist "SystemVersion.plist" del /f /q "SystemVersion.plist"
+
+    %ssh% -p !ssh_port! root@127.0.0.1 "cat /mnt1/System/Library/CoreServices/SystemVersion.plist" > "SystemVersion.plist" 2>nul
+
+    if not exist "SystemVersion.plist" (
+        call :error "Unable get SystemVersion.plist from device"
+        pause
+        exit /b 1
+    )
+
+    set "device_vers="
+    set "device_build="
+
+    for /f "delims=" %%a in ('%cat% "SystemVersion.plist" ^| %grep% -F "<string>" ^| %sed% -e "s/^[ \t]*<string>//" -e "s/<\/string>.*//" ^| %sed% "2d"') do set "device_vers=%%a"
+    for /f "delims=" %%a in ('%cat% "SystemVersion.plist" ^| %grep% -i "ProductBuildVersion" -A 1 ^| %grep% -oPm1 "(?<=<string>)[^<]+" ^| %sed% "s/^[ \t]*//" ') do set "device_build=%%a"
+
+    if defined device_vers (
+        call :log "Get iOS Version successfully"
+        call :print "iOS Version: %device_vers% (%device_build%)"
+        pause
+        exit /b
+    ) else (
+        call :error "Unable parse iOS Version"
+        pause
+        exit /b 1
+    )
+
+
+:device_send_rdtar
+    setlocal
+    set "file_name=%~1"
+    set "data_flag=%~2"
+    set "target=/mnt1"
+
+    if "%data_flag%"=="data" set "target=/mnt1/private/var"
+
+    call :log "Sending %file_name%"
+    %scp% -P !ssh_port! "%jelbrek%\%file_name%" root@127.0.0.1:%target%
+
+    call :log "Extracting %file_name%"
+    %ssh% -p !ssh_port! root@127.0.0.1 "tar -xvf %target%/%file_name% -C /mnt1; rm %target%/%file_name%"
+    endlocal
+    exit /b 0
+
 :jailbreak
+    set "jelbrek=..\resources\Jailbreak"
+    call :check_iosvers
+    setlocal
+    set "vers=%device_vers%"
+    set "build=%device_build%"
+    %ssh% -p !ssh_port! root@127.0.0.1 "ls /mnt1/bin/bash" >nul 2>&1
+    if %errorlevel% equ 0 (
+        call :warn "Your device seems to be already jailbroken. Cannot continue."
+        pause
+        exit /b 1
+    )
+    if "%vers%"=="" (
+        call :warn "Something wrong happened. Failed to get iOS version."
+        if "%just_jailbreak%"=="1" (
+            %ssh% -p !ssh_port! root@127.0.0.1 "reboot_bak"
+        ) else (
+            pause
+            exit /b 0
+        )
+    ) else if "%vers:~0,4%"=="9.3.4" (
+        set "untether=untetherhomedepot.tar"
+    ) else if "%vers:~0,4%"=="9.3.3" (
+        set "untether=untetherhomedepot.tar"
+    ) else if "%vers:~0,4%"=="9.3.2" (
+        set "untether=untetherhomedepot.tar"
+    ) else if "%vers:~0,4%"=="9.3.1" (
+        set "untether=untetherhomedepot.tar"
+    ) else if "%vers%"=="9.3" (
+        set "untether=untetherhomedepot.tar"
+    ) else if "%vers:~0,4%"=="9.2." (
+        set "untether=untetherhomedepot921.tar"
+    ) else if "%vers%"=="9.2" (
+        set "untether=untetherhomedepot921.tar"
+    ) else if "%vers%"=="9.1" (
+        set "untether=untetherhomedepot921.tar"
+    ) else if "%vers:~0,2%"=="9.0" (
+        set "untether=everuntether.tar"
+    ) else if "%vers:~0,2%"=="8." (
+        set "untether=daibutsu/untether.tar"
+    ) else if "%vers:~0,4%"=="7.1." (
+        if "%device_type:~0,4%"=="iPod" (
+            set "untether=panguaxe-ipod.tar"
+        ) else (
+            set "untether=panguaxe.tar"
+        )
+    ) else if "%vers:~0,4%"=="7.0." (
+        set "untether=evasi0n7-untether.tar"
+        if "%device_type%"=="iPhone5,3" if "%vers%"=="7.0" set "untether=evasi0n7-untether-70.tar"
+        if "%device_type%"=="iPhone5,4" if "%vers%"=="7.0" set "untether=evasi0n7-untether-70.tar"
+    ) else if "%vers:~0,5%"=="6.1.6" (
+        set "untether=p0sixspwn.tar"
+    ) else if "%vers:~0,5%"=="6.1.5" (
+        set "untether=p0sixspwn.tar"
+    ) else if "%vers:~0,5%"=="6.1.4" (
+        set "untether=p0sixspwn.tar"
+    ) else if "%vers:~0,5%"=="6.1.3" (
+        set "untether=p0sixspwn.tar"
+    ) else if "%vers:~0,2%"=="6." (
+        set "untether=evasi0n6-untether.tar"
+    ) else if "%vers:~0,2%"=="5." (
+        set "untether=g1lbertJB/%device_type%_%build%.tar"
+    ) else if "%vers:~0,5%"=="4.2.8" (
+        set "untether=greenpois0n/%device_type%_%build%.tar"
+    ) else if "%vers:~0,5%"=="4.2.7" (
+        set "untether=greenpois0n/%device_type%_%build%.tar"
+    ) else if "%vers:~0,5%"=="4.2.6" (
+        set "untether=greenpois0n/%device_type%_%build%.tar"
+    ) else if "%vers:~0,5%"=="4.2.1" (
+        set "untether=greenpois0n/%device_type%_%build%.tar"
+    ) else if "%vers:~0,2%"=="4.1" (
+        set "untether=greenpois0n/%device_type%_%build%.tar"
+    ) else if "%vers:~0,2%"=="4.0" (
+        set "untether=greenpois0n/%device_type%_%build%.tar"
+    ) else if "%vers:~0,3%"=="3.2" (
+        set "untether=greenpois0n/%device_type%_%build%.tar"
+    ) else if "%vers%"=="3.1.3" (
+        set "untether=greenpois0n/%device_type%_%build%.tar"
+    ) else if "%vers:~0,2%"=="4.3" (
+        if "%device_type:~0,5%"=="iPad2" (
+            set "untether=1"
+        ) else if "%device_type%"=="iPhone3,3" (
+            set "untether=1"
+        ) else (
+            set "untether=g1lbertJB/%device_type%_%build%.tar"
+        )
+    ) else if "%vers:~0,2%"=="4.2" (
+        if "%device_type:~0,5%"=="iPad2" (
+            set "untether=1"
+        ) else if "%device_type%"=="iPhone3,3" (
+            set "untether=1"
+        ) else (
+            set "untether=g1lbertJB/%device_type%_%build%.tar"
+        )
+    ) else if "%vers:~0,2%"=="3." (
+        if "%device_type%"=="iPhone2,1" set "untether=1"
+    )
+    if not defined untether (
+        call :warn "iOS !vers! is not supported for jailbreaking with SSHRD."
+    )
+    call :log "Nice, iOS !vers! is compatible."
+    call :log "Mounting data partition"
+    %ssh% -p !ssh_port! root@127.0.0.1 "mount.sh pv"
+
+    if "%vers:~0,2%"=="6." (
+        call :device_send_rdtar fstab_rw.tar
+    ) else if "%vers:~0,5%"=="4.2.8" (
+        call :log "launchd to punchd"
+        %ssh% -p !ssh_port! root@127.0.0.1 "ls /mnt1/sbin/punchd" >nul 2>&1 || %ssh% -p !ssh_port! root@127.0.0.1 "mv /mnt1/sbin/launchd /mnt1/sbin/punchd"
+    ) else if "%vers:~0,5%"=="4.2.7" (
+        call :log "launchd to punchd"
+        %ssh% -p !ssh_port! root@127.0.0.1 "ls /mnt1/sbin/punchd" >nul 2>&1 || %ssh% -p !ssh_port! root@127.0.0.1 "mv /mnt1/sbin/launchd /mnt1/sbin/punchd"
+    ) else if "%vers:~0,5%"=="4.2.6" (
+        call :log "launchd to punchd"
+        %ssh% -p !ssh_port! root@127.0.0.1 "ls /mnt1/sbin/punchd" >nul 2>&1 || %ssh% -p !ssh_port! root@127.0.0.1 "mv /mnt1/sbin/launchd /mnt1/sbin/punchd"
+    ) else if "%vers:~0,5%"=="4.2.1" (
+        call :log "launchd to punchd"
+        %ssh% -p !ssh_port! root@127.0.0.1 "ls /mnt1/sbin/punchd" >nul 2>&1 || %ssh% -p !ssh_port! root@127.0.0.1 "mv /mnt1/sbin/launchd /mnt1/sbin/punchd"
+    )
+
+    if "%vers:~0,2%"=="5." (
+        call :device_send_rdtar g1lbertJB.tar
+    ) else if "%vers:~0,2%"=="4." (
+        call :log "fstab"
+        set "fstab=fstab_new"
+        if "%device_proc%"=="1" set "fstab=fstab_old"
+        if "%device_type%"=="iPod2,1" set "fstab=fstab_old"
+        %scp% -P !ssh_port! "%jelbrek%\!fstab!" root@127.0.0.1:/mnt1/private/etc/fstab
+        %ssh% -p !ssh_port! root@127.0.0.1 "rm /mnt1/private/var/mobile/Library/Caches/com.apple.mobile.installation.plist"
+    ) else if "%vers:~0,2%"=="3." (
+        call :log "fstab"
+        set "fstab=fstab_new"
+        if "%device_proc%"=="1" set "fstab=fstab_old"
+        if "%device_type%"=="iPod2,1" set "fstab=fstab_old"
+        %scp% -P !ssh_port! "%jelbrek%\!fstab!" root@127.0.0.1:/mnt1/private/etc/fstab
+        %ssh% -p !ssh_port! root@127.0.0.1 "rm /mnt1/private/var/mobile/Library/Caches/com.apple.mobile.installation.plist"
+    )
+
+    call :log "Sending %untether%"
+    %scp% -P !ssh_port! "%jelbrek%\%untether%" root@127.0.0.1:/mnt1
+
+    if "%vers:~0,2%"=="5." (
+        set "untether=%device_type%_%build%.tar"
+    ) else if "%vers:~0,2%"=="4." (
+        set "untether=%device_type%_%build%.tar"
+    ) else if "%vers:~0,2%"=="3." (
+        set "untether=%device_type%_%build%.tar"
+    )
+
+    if "%vers:~0,2%"=="4.1" (
+        call :log "Extracting %untether%"
+        %ssh% -p !ssh_port! root@127.0.0.1 "tar -xvf /mnt1/%untether% -C /mnt1; rm /mnt1/%untether%"
+    ) else if "%vers:~0,2%"=="4.0" (
+        call :log "Extracting %untether%"
+        %ssh% -p !ssh_port! root@127.0.0.1 "tar -xvf /mnt1/%untether% -C /mnt1; rm /mnt1/%untether%"
+    ) else if "%vers:~0,3%"=="3.2" (
+        call :log "Extracting %untether%"
+        %ssh% -p !ssh_port! root@127.0.0.1 "tar -xvf /mnt1/%untether% -C /mnt1; rm /mnt1/%untether%"
+    ) else if "%vers%"=="3.1.3" (
+        call :log "Extracting %untether%"
+        %ssh% -p !ssh_port! root@127.0.0.1 "tar -xvf /mnt1/%untether% -C /mnt1; rm /mnt1/%untether%"
+    )
+
+    if "%vers:~0,2%"=="4.1" (
+        rem
+    ) else if "%vers:~0,2%"=="4.0" (
+        rem
+    ) else if "%vers:~0,2%"=="3." (
+        rem
+    ) else (
+        if not "%untether%"=="1" (
+            call :log "Extracting %untether%"
+            %ssh% -p !ssh_port! root@127.0.0.1 "tar -xvf /mnt1/%untether% -C /mnt1; rm /mnt1/%untether%"
+        )
+    )
+
+    call :device_send_rdtar freeze.tar data
+
+    if "%vers:~0,1%"=="9" (
+        if not "%vers:~0,2%"=="9.0" call :device_send_rdtar daemonloader.tar
+        call :device_send_rdtar launchctl.tar
+    )
+
+    if "%ipsw_openssh%"=="1" (
+        call :device_send_rdtar sshdeb.tar
+    )
+
+    if "%vers:~0,2%"=="5." (
+        call :device_send_rdtar cydiasubstrate.tar
+    ) else if "%vers:~0,2%"=="4." (
+        call :device_send_rdtar cydiasubstrate.tar
+    ) else if "%vers:~0,2%"=="3." (
+        call :device_send_rdtar cydiasubstrate.tar
+    )
+
+    if "%vers:~0,2%"=="3." (
+        call :device_send_rdtar cydiahttpatch.tar
+    )
+
+    if not "%~1"=="noreboot" (
+        call :log "Rebooting"
+        %ssh% -p !ssh_port! root@127.0.0.1 "reboot_bak"
+    )
+
+    call :log "Jailbreak successfully?"
+
+    pause
+    endlocal
+
+
 
 
 :select_option
     set "selected="
-    setlocal enabledelayedexpansion
 
     set "_out_var=%~1"
     if not defined _out_var exit /b 1
@@ -1088,12 +1364,13 @@ goto main %~1
     :menu_parse_done
 
     if %_cn% equ 0 exit /b 1
+
     for /f %%a in ('echo prompt $E^|cmd') do set "_ESC=%%a"
     set "_pointer=--> "
     set "_blank=    "
     set /a _max_idx=_cn-1
-    set /a _i=_cn*10000
     set "_mod=0"
+
     <nul set /p "=!_ESC![?25l"
 
 :menu_draw
@@ -1106,28 +1383,26 @@ goto main %~1
     )
 
 :menu_get_key
-    for /f "delims=" %%i in ('powershell -Command "[Console]::ReadKey($true).Key"') do set "_key=%%i"
+    for /f "delims=" %%i in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$k=[Console]::ReadKey($true).Key; write-host $k"') do set "_key=%%i"
 
     if /i "!_key!"=="UpArrow" (
-        set /a _i-=1
-        set /a _mod=_i%%_cn
+        set /a "_mod=(_mod - 1 + _cn) %% _cn"
         <nul set /p "=!_ESC![!_cn!A"
         goto :menu_draw
     )
 
     if /i "!_key!"=="DownArrow" (
-        set /a _i+=1
-        set /a _mod=_i%%_cn
+        set /a "_mod=(_mod + 1) %% _cn"
         <nul set /p "=!_ESC![!_cn!A"
         goto :menu_draw
     )
+
     if /i "!_key!"=="Enter" goto :menu_selected
     goto :menu_get_key
 
 :menu_selected
     <nul set /p "=!_ESC![?25h"
     for /f "delims=" %%V in ("!_menu[%_mod%]!") do (
-        endlocal
         set "%_out_var%=%_mod%"
         set "selected=%%~V"
         exit /b 0
@@ -1136,9 +1411,9 @@ goto main %~1
 :yesno
     set "yesno="
     if "%~1"=="" (
-        call :print Do you want to continue?
+        call :print "Do you want to continue?"
     ) else (
-        call :print %~1
+        call :print "%~1"
     )
     if "%~2"=="1" (
         call :select_option yesno "Yes" "No"
