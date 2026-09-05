@@ -64,3 +64,5 @@ Forked from [Legacy iOS Kit](https://github.com/LukeZGD/Legacy-iOS-Kit/) Add som
 - commit 30 fix bruteforce part,update .gitignore
 - commit 31 fix jailbreak for windows
 - commit 32 rm useless files
+- commit 33 sync the newest leagacy ios kit and fix s5l8900 device boot issue
+- commit 34 update readme and fix some bugs

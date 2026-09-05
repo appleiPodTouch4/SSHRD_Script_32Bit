@@ -991,9 +991,64 @@ ramdisk() {
         done
     fi
 
+    if [[ $device_proc == "1" ]]; then
+        if [[ -n $device_rd_ver ]]; then
+            if [[ $device_type == "iPhone1,2" ]]; then
+                validate_build $device_rd_ver
+                if [[ $? == 0 ]]; then
+                    case $device_rd_ver in
+                        "7E18" | "8B117" | "8C148" ) :;;
+                        * ) 
+                        warn "This version of ramdisk is unsupport for $device_type" 
+                        log "Making $device_target_build ramdisk instead"
+                        device_rd_ver=""
+                        ;;
+                    esac
+                else
+                    case $device_rd_ver in
+                        "3.1.3" | "4.1" | "4.2.1" ) :;;
+                        * ) 
+                        warn "This version of ramdisk is unsupport for $device_type" 
+                        log "Making $device_target_build ramdisk instead"
+                        device_rd_ver=""
+                        ;;
+                    esac
+                fi
+            else
+                warn "$device_type is not supported for define custom ramdisk version"
+                log "Making $device_target_build ramdisk instead"
+                device_rd_ver=""
+            fi
+        fi
+    elif [[ $device_type == "iPod2,1" ]]; then
+        validate_build $device_rd_ver
+        if [[ $? == 0 ]]; then
+            case $device_rd_ver in
+                "7C145" | "7D11" | "7E18" | "8A293" | "8A400" | "8B117" | "8C148" ) :;;
+                * ) 
+                warn "This version of ramdisk is unsupport for $device_type" 
+                log "Making $device_target_build ramdisk instead"
+                device_rd_ver=""
+                ;;
+            esac
+        else
+            case $device_rd_ver in
+                "3.1.1" | "3.1.2" | "3.1.3" | "4.0" | "4.0.2" | "4.1" | "4.2.1" ) :;;
+                * ) 
+                warn "This version of ramdisk is unsupport for $device_type" 
+                log "Making $device_target_build ramdisk instead"
+                device_rd_ver=""
+                ;;
+            esac
+        fi
+    fi
+
+
+
     if [[ -n $device_rd_ver ]]; then
         get_firmware_info $device_rd_ver
         device_target_build=$firmware_buildid
+        device_target_vers=$firmware_version
     elif [[ -n $device_rd_ver ]] && [[ -n $ipsw_path ]]; then
         get_firmware_info $device_rd_ver
         if [[ $device_ipsw_build != $firmware_buildid ]]; then
@@ -1005,16 +1060,14 @@ ramdisk() {
                 return
             fi
         fi
-    elif [[ $mode == "boot" ]] && [[ -z $device_rd_ver ]]; then
-        log "Enter ramdisk version"
-        read device_rd_ver
-        get_firmware_info $device_rd_ver
     else
         get_firmware_info $device_target_build
+        device_target_vers=$firmware_version
     fi
+
     device_fw_key_check
     ipsw_url=$firmware_url
-    version=$firmware_version
+    version=$device_target_vers
     build_id=$device_target_build
     bundle+="${device_type}_${version}_${build_id}.bundle"
     print "*Ramdisk version:$version($build_id)*"
@@ -1037,12 +1090,6 @@ ramdisk() {
                 ramdisk_boot
                 return
             fi
-        fi
-    elif [[ $mode == "boot" ]]; then
-        warn "Ramdisk doesn't exist"
-        yesno "Do you want to make?"
-        if [[ $? != 1 ]]; then
-            exit
         fi
     fi  
 
@@ -2344,7 +2391,7 @@ get_firmware_info() {
             if [[ -n $name ]]; then
                 firmware_url="https://invoxiplaygames.uk/ipsw/$name"
                 firmware_version="$(echo "$name" | cut -d'_' -f2)"
-                firmware_buildid="$(echo "$filename" | cut -d'_' -f3)"
+                firmware_buildid="$(echo "$name" | cut -d'_' -f3)"
                 return 0
             fi
         elif [[ $mode == "build" ]] && [[ $1 == 5* || $1 == 7* ]]; then
@@ -2365,7 +2412,7 @@ get_firmware_info() {
             if [[ -n $name ]]; then
                 firmware_url="https://invoxiplaygames.uk/ipsw/$name"
                 firmware_version="$(echo "$name" | cut -d'_' -f2)"
-                firmware_buildid="$(echo "$filename" | cut -d'_' -f3)"
+                firmware_buildid="$(echo "$name" | cut -d'_' -f3)"
                 return 0
             fi
         fi
@@ -2861,7 +2908,6 @@ main() {
     for i in "$@"; do
         case "$i" in
             [0-9]*.[0-9]* | [0-9]*[A-Za-z][0-9]* ) device_rd_ver="$i";;
-            boot ) mode="boot";;
             reboot ) mode="reboot";;
             ssh ) mode="ssh";;
             menu ) mode="menu";;
