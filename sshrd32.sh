@@ -933,6 +933,7 @@ ramdisk() {
     local mode1=$other_argmode
     local rec=2
     all_flash="Firmware/all_flash/all_flash.${device_model}ap.production"
+    local bundle="../resources/firmware/FirmwareBundles/Down_"
 
     if [[ $1 == "setnvram" ]]; then
         rec=$2
@@ -1015,6 +1016,7 @@ ramdisk() {
     ipsw_url=$firmware_url
     version=$firmware_version
     build_id=$device_target_build
+    bundle+="${device_type}_${version}_${build_id}.bundle"
     print "*Ramdisk version:$version($build_id)*"
     ramdisk_path="../saved/$device_type/ramdisk_$build_id"
     
@@ -1127,31 +1129,19 @@ ramdisk() {
 
     log "Patch RestoreRamdisk"
     "$dir/xpwntool" RestoreRamdisk.dec Ramdisk.raw
-    if [[ $device_proc != 1 ]]; then
-        "$dir/hfsplus" Ramdisk.raw grow 30000000
-        "$dir/hfsplus" Ramdisk.raw untar ../resources/sbplist.tar
-    fi
+    "$dir/hfsplus" Ramdisk.raw grow 32000000
+    "$dir/hfsplus" Ramdisk.raw untar ../resources/sbplist.tar
 
-    if [[ $device_proc == 1 ]]; then
-        $bspatch Ramdisk.raw Ramdisk.patched ../resources/patch/018-6494-014.patch
-        "$dir/xpwntool" Ramdisk.patched Ramdisk.dmg -t RestoreRamdisk.dec
-        log "Patch iBSS"
-        $bspatch iBSS.orig iBSS ../resources/patch/iBSS.${device_model}ap.RELEASE.patch
-        log "Patch Kernelcache"
-        mv Kernelcache.dec Kernelcache0.dec
-        $bspatch Kernelcache0.dec Kernelcache.patched ../resources/patch/kernelcache.release.s5l8900x.patch
-        "$dir/xpwntool" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig $decrypt
-        rm DeviceTree.dec
-        mv DeviceTree.orig DeviceTree.dec
-    elif [[ $device_type == "iPod2,1" ]]; then
+
+    if [[ $device_proc == 1 || $device_type == "iPod2,1" ]]; then
         "$dir/hfsplus" Ramdisk.raw untar ../resources/ssh_old.tar
         "$dir/xpwntool" Ramdisk.raw Ramdisk.dmg -t RestoreRamdisk.dec
         log "Patch iBSS"
-        $bspatch iBSS.dec iBSS.patched ../resources/patch/iBSS.${device_model}ap.RELEASE.patch
+        $bspatch iBSS.dec iBSS.patched $bundle/iBSS.${device_model}ap.RELEASE.patch
         "$dir/xpwntool" iBSS.patched iBSS -t iBSS.orig
         log "Patch Kernelcache"
         mv Kernelcache.dec Kernelcache0.dec
-        $bspatch Kernelcache0.dec Kernelcache.patched ../resources/patch/kernelcache.release.${device_model}.patch
+        $bspatch Kernelcache0.dec Kernelcache.patched $bundle/kernelcache.release.patch
         "$dir/xpwntool" Kernelcache.patched Kernelcache.dec -t Kernelcache.orig $decrypt
         rm DeviceTree.dec
         mv DeviceTree.orig DeviceTree.dec
@@ -1221,7 +1211,7 @@ ramdisk() {
         fi
     fi
 
-    if [[ $device_boot4 == 1 ]]; then
+    if [[ $device_boot4 == 1 && $build_id == "8E"* ]]; then
         log "Patch Kernelcache"
         mv Kernelcache.dec Kernelcache0.dec
         "$dir/xpwntool" Kernelcache0.dec Kernelcache.raw
@@ -2353,6 +2343,8 @@ get_firmware_info() {
             local name=$(echo "$names" | grep -E "_${1}_" | head -n 1)
             if [[ -n $name ]]; then
                 firmware_url="https://invoxiplaygames.uk/ipsw/$name"
+                firmware_version="$(echo "$name" | cut -d'_' -f2)"
+                firmware_buildid="$(echo "$filename" | cut -d'_' -f3)"
                 return 0
             fi
         elif [[ $mode == "build" ]] && [[ $1 == 5* || $1 == 7* ]]; then
@@ -2372,6 +2364,8 @@ get_firmware_info() {
             local name=$(echo "$names" | grep -E "_[^_]+_${1}_" | head -n 1)
             if [[ -n $name ]]; then
                 firmware_url="https://invoxiplaygames.uk/ipsw/$name"
+                firmware_version="$(echo "$name" | cut -d'_' -f2)"
+                firmware_buildid="$(echo "$filename" | cut -d'_' -f3)"
                 return 0
             fi
         fi
